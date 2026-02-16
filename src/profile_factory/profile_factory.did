@@ -12,21 +12,13 @@ type Result = variant { Ok; Err : DaffyError };
 type Result_1 = variant { Ok : principal; Err : DaffyError };
 service : () -> {
   // Delete the caller's profile canister. Stops it, deletes it,
-  // removes the mapping, and writes a tombstone.
+  // and removes the mapping. No tombstone — resolve() will return
+  // ProfileNotFound for this principal going forward.
   delete_profile_canister : () -> (Result);
-  // Returns the factory's current cycle balance (for operator monitoring).
   get_cycle_balance : () -> (nat) query;
-  // Create a profile canister for the caller, or return the existing one.
-  // If the caller has a tombstone (previously deleted), clears it and creates fresh.
   get_or_create_profile_canister : () -> (Result_1);
   // Resolve a principal to its profile canister ID.
-  // Callable by any authenticated principal. Rate-limited to 200/min/caller.
-  // 
-  // Returns:
-  // - Ok(canister_id) if principal has an active profile canister
-  // - Err(ProfileDeleted) if principal has a tombstone
-  // - Err(ProfileNotFound) if principal was never registered
+  // Returns ProfileNotFound for both never-existed and deleted principals.
   resolve : (principal) -> (Result_1) query;
-  // Returns the canister version.
   version : () -> (text) query;
 }

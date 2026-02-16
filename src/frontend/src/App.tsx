@@ -1,95 +1,268 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { AuthClient } from "@dfinity/auth-client";
-import { HttpAgent } from "@dfinity/agent";
+import { Principal } from "@dfinity/principal";
+import {
+  createAgent,
+  createFactoryActor,
+  createProfileActor,
+  isOk,
+  getError,
+  II_URL,
+  isLocal,
+} from "./ic/agent";
+import ProfileSetup from "./components/ProfileSetup";
+import ProfileView from "./components/ProfileView";
+import "./App.css";
 
-// Environment-aware configuration
-// DFX_NETWORK is injected by vite-plugin-environment from .env
-const network = process.env.DFX_NETWORK || "local";
-const isLocal = network === "local";
+// ============================================================
+// App state types
+// ============================================================
 
-const host = isLocal ? "http://127.0.0.1:4943" : "https://icp-api.io";
+type Screen =
+  | "loading"
+  | "unauthenticated"
+  | "initializing"     // authenticated, loading profile canister
+  | "profile-setup"    // has canister but no profile data yet
+  | "profile-view"     // has active profile
+  | "profile-deleted"  // profile was deleted, offer rejoin
+  | "error";
 
-// Internet Identity URL
-// Local: points to the locally deployed II canister
-// Mainnet: points to the real II service
-const iiUrl = isLocal
-  ? `http://${process.env.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`
-  : "https://identity.ic0.app";
+interface ProfileData {
+  owner: string;
+  email: string;
+  birthdate: string;
+  gender: string;
+  display_name: string;
+}
+
+// ============================================================
+// App Component
+// ============================================================
 
 function App() {
   const [authClient, setAuthClient] = useState<AuthClient | null>(null);
   const [principal, setPrincipal] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Initialise the auth client on mount
+  // Profile state
+  const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+
+  // Actors (set after auth)
+  const [factoryActor, setFactoryActor] = useState<any>(null);
+  const [profileActor, setProfileActor] = useState<any>(null);
+
+  // ----------------------------------------------------------
+  // Initialize auth client on mount
+  // ----------------------------------------------------------
   useEffect(() => {
     AuthClient.create().then(async (client) => {
       setAuthClient(client);
 
-      // Check if already authenticated (session delegation still valid)
       const authenticated = await client.isAuthenticated();
       if (authenticated) {
-        const identity = client.getIdentity();
-        setPrincipal(identity.getPrincipal().toText());
-        setIsAuthenticated(true);
-
-        // In local dev, fetch the root key (required for local replica)
-        // NEVER do this on mainnet — it's a security vulnerability
-        if (isLocal) {
-          const agent = new HttpAgent({ host, identity });
-          await agent.fetchRootKey();
-        }
+        await handleAuthenticated(client);
+      } else {
+        setScreen("unauthenticated");
       }
-
-      setLoading(false);
     });
   }, []);
 
+  // ----------------------------------------------------------
+  // Post-authentication setup
+  // ----------------------------------------------------------
+  const handleAuthenticated = useCallback(async (client: AuthClient) => {
+    try {
+      const identity = client.getIdentity();
+      const principalText = identity.getPrincipal().toText();
+      setPrincipal(principalText);
+      setScreen("initializing");
+
+      // Create agent
+      const agent = await createAgent(identity);
+
+      // Create factory actor
+      const factory = createFactoryActor(agent);
+      setFactoryActor(factory);
+
+      // Get or create profile canister
+      const result = await factory.get_or_create_profile_canister();
+
+      if (isOk(result as any)) {
+        const canisterId = (result as any).Ok as Principal;
+        const canisterIdText = canisterId.toText();
+        setProfileCanisterId(canisterIdText);
+
+        // Create dynamic actor for this user's profile canister
+        const profActor = createProfileActor(agent, canisterId);
+        setProfileActor(profActor);
+
+        // Load profile data
+        await loadProfile(profActor);
+      } else {
+        setError(`Factory error: ${getError(result as any)}`);
+        setScreen("error");
+      }
+    } catch (e: any) {
+      setError(`Authentication setup failed: ${e.message || e}`);
+      setScreen("error");
+    }
+  }, []);
+
+  // ----------------------------------------------------------
+  // Load profile from the user's profile canister
+  // ----------------------------------------------------------
+  const loadProfile = async (actor: any) => {
+    try {
+      const result = await actor.get_profile();
+
+      if (isOk(result)) {
+        const info = (result as any).Ok;
+        setProfileData({
+          owner: info.owner.toText(),
+          email: info.email,
+          birthdate: info.birthdate,
+          gender: info.gender,
+          display_name: info.display_name,
+        });
+        setScreen("profile-view");
+      } else {
+        const errStr = getError(result);
+        if (errStr.startsWith("ProfileNotFound")) {
+          setScreen("profile-setup");
+        } else if (errStr.startsWith("ProfileDeleted")) {
+          setScreen("profile-deleted");
+        } else {
+          setError(`Profile load error: ${errStr}`);
+          setScreen("error");
+        }
+      }
+    } catch (e: any) {
+      setError(`Failed to load profile: ${e.message || e}`);
+      setScreen("error");
+    }
+  };
+
+  // ----------------------------------------------------------
+  // Actions
+  // ----------------------------------------------------------
+
   const handleLogin = async () => {
     if (!authClient) return;
-
     setError(null);
 
     try {
       await authClient.login({
-        identityProvider: iiUrl,
-        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000_000_000), // 7 days
+        identityProvider: II_URL,
+        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1_000_000_000),
         onSuccess: async () => {
-          const identity = authClient.getIdentity();
-          setPrincipal(identity.getPrincipal().toText());
-          setIsAuthenticated(true);
-
-          if (isLocal) {
-            const agent = new HttpAgent({ host, identity });
-            await agent.fetchRootKey();
-          }
+          await handleAuthenticated(authClient);
         },
         onError: (err) => {
           setError(`Login failed: ${err}`);
         },
       });
-    } catch (e) {
-      setError(`Login error: ${e}`);
+    } catch (e: any) {
+      setError(`Login error: ${e.message || e}`);
     }
   };
 
   const handleLogout = async () => {
     if (!authClient) return;
-
     await authClient.logout();
     setPrincipal(null);
-    setIsAuthenticated(false);
+    setProfileCanisterId(null);
+    setProfileData(null);
+    setProfileActor(null);
+    setFactoryActor(null);
+    setScreen("unauthenticated");
+    setError(null);
+    setActionError(null);
   };
 
-  if (loading) {
-    return (
-      <div className="app">
-        <p>Loading...</p>
-      </div>
-    );
-  }
+  const handleSaveProfile = async (input: {
+    email: string;
+    birthdate: string;
+    gender: string;
+    display_name: string;
+  }) => {
+    if (!profileActor) return;
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      const result = await profileActor.upsert_profile(input);
+      if (isOk(result)) {
+        const info = (result as any).Ok;
+        setProfileData({
+          owner: info.owner.toText(),
+          email: info.email,
+          birthdate: info.birthdate,
+          gender: info.gender,
+          display_name: info.display_name,
+        });
+        setScreen("profile-view");
+      } else {
+        setActionError(getError(result));
+      }
+    } catch (e: any) {
+      setActionError(`Save failed: ${e.message || e}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateProfile = async (input: {
+    email: string;
+    birthdate: string;
+    gender: string;
+    display_name: string;
+  }) => {
+    await handleSaveProfile(input);
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!factoryActor) return;
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      const result = await factoryActor.delete_profile_canister();
+      if (isOk(result as any)) {
+        setProfileData(null);
+        setProfileActor(null);
+        setProfileCanisterId(null);
+        setScreen("profile-deleted");
+      } else {
+        setActionError(getError(result as any));
+      }
+    } catch (e: any) {
+      setActionError(`Delete failed: ${e.message || e}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejoin = async () => {
+    if (!authClient) return;
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      await handleAuthenticated(authClient);
+    } catch (e: any) {
+      setActionError(`Rejoin failed: ${e.message || e}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ----------------------------------------------------------
+  // Render
+  // ----------------------------------------------------------
 
   return (
     <div className="app">
@@ -98,43 +271,99 @@ function App() {
         <p className="subtitle">Daffy definitions for daffy words</p>
       </header>
 
+      {principal && screen !== "unauthenticated" && screen !== "loading" && (
+        <div className="session-bar">
+          <span className="principal-display">
+            {principal.slice(0, 8)}...{principal.slice(-5)}
+          </span>
+          {isLocal && <span className="network-badge">local</span>}
+          <button className="button-link" onClick={handleLogout}>
+            Sign Out
+          </button>
+        </div>
+      )}
+
       <main className="main">
-        {isAuthenticated ? (
-          <div className="authenticated">
-            <div className="session-info">
-              <p>
-                Signed in as:{" "}
-                <code className="principal">
-                  {principal?.slice(0, 10)}...{principal?.slice(-5)}
-                </code>
-              </p>
-              <p className="network-badge">
-                Network: <strong>{network}</strong>
-              </p>
-            </div>
-
-            <div className="placeholder">
-              <p>Bulletin board coming in Phase 3...</p>
-            </div>
-
-            <button className="button button-secondary" onClick={handleLogout}>
-              Sign Out
-            </button>
+        {screen === "loading" && (
+          <div className="center-message">
+            <p>Loading...</p>
           </div>
-        ) : (
-          <div className="unauthenticated">
+        )}
+
+        {screen === "unauthenticated" && (
+          <div className="center-message">
             <p>Sign in to create challenges, add definitions, and like your favourites.</p>
             <button className="button button-primary" onClick={handleLogin}>
               Sign In with Internet Identity
             </button>
+            {error && <p className="error">{error}</p>}
           </div>
         )}
 
-        {error && <p className="error">{error}</p>}
+        {screen === "initializing" && (
+          <div className="center-message">
+            <p>Setting up your profile canister...</p>
+            <div className="spinner" />
+          </div>
+        )}
+
+        {screen === "profile-setup" && (
+          <ProfileSetup
+            onSave={handleSaveProfile}
+            loading={actionLoading}
+            error={actionError}
+          />
+        )}
+
+        {screen === "profile-view" && profileData && profileCanisterId && (
+          <ProfileView
+            profile={profileData}
+            profileCanisterId={profileCanisterId}
+            onUpdate={handleUpdateProfile}
+            onDelete={handleDeleteProfile}
+            loading={actionLoading}
+            error={actionError}
+          />
+        )}
+
+        {screen === "profile-deleted" && (
+          <div className="card">
+            <h2>Profile Deleted</h2>
+            <p className="muted">
+              Your profile canister has been permanently deleted. Your challenges and comments
+              on the bulletin board remain but will show as "[deleted user]".
+            </p>
+            <div className="button-row">
+              <button
+                className="button button-primary"
+                onClick={handleRejoin}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Rejoining..." : "Rejoin with New Profile"}
+              </button>
+              <button className="button button-secondary" onClick={handleLogout}>
+                Sign Out
+              </button>
+            </div>
+            {actionError && <p className="error">{actionError}</p>}
+          </div>
+        )}
+
+        {screen === "error" && (
+          <div className="card">
+            <h2>Something went wrong</h2>
+            <p className="error">{error}</p>
+            <div className="button-row">
+              <button className="button button-secondary" onClick={handleLogout}>
+                Sign Out & Retry
+              </button>
+            </div>
+          </div>
+        )}
       </main>
 
       <footer className="footer">
-        <p>DaffyDefs — Scaffold v0.1.0</p>
+        <p>DaffyDefs v0.1.0 — Phase 3a</p>
       </footer>
     </div>
   );
