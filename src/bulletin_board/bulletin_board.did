@@ -1,4 +1,62 @@
-service : {
-  // Returns the canister version identifier.
+type ChallengeDetail = record {
+  id : nat64;
+  word : text;
+  created_at : nat64;
+  author : principal;
+  comments : vec CommentView;
+};
+type ChallengeSummary = record {
+  id : nat64;
+  comment_count : nat64;
+  word : text;
+  created_at : nat64;
+  author : principal;
+};
+type ChallengesPage = record {
+  next_cursor : opt nat64;
+  challenges : vec ChallengeSummary;
+};
+type CommentView = record {
+  id : nat64;
+  like_count : nat64;
+  "text" : text;
+  created_at : nat64;
+  liked_by_caller : bool;
+  author : principal;
+  challenge_id : nat64;
+};
+type CommentsPage = record {
+  next_cursor : opt nat64;
+  comments : vec CommentView;
+};
+type DaffyError = variant {
+  ProfileDeleted : record { message : text };
+  InvalidInput : record { message : text };
+  ProfileNotFound : record { message : text };
+  NotAuthorized : record { message : text };
+  CanisterCallFailed : record { message : text };
+  AlreadyExists : record { message : text };
+  InvalidWord : record { message : text };
+  RateLimitExceeded : record { message : text };
+};
+type Result = variant { Ok : nat64; Err : DaffyError };
+type Result_1 = variant { Ok : ChallengeDetail; Err : DaffyError };
+service : () -> {
+  // Add a comment to a challenge. Cannot comment on your own challenge.
+  add_comment : (nat64, text) -> (Result);
+  // Create a new challenge. Word must be alphabetic, 3–20 chars.
+  create_challenge : (text) -> (Result);
+  // Get a single challenge by ID, with its comments.
+  get_challenge : (nat64) -> (Result_1) query;
+  // List challenges, newest first. Cursor-based pagination.
+  // cursor = the last seen order_key from a previous page.
+  list_challenges : (opt nat64, opt nat32) -> (ChallengesPage) query;
+  // List comments for a challenge, newest first. Cursor-based pagination.
+  // cursor = the last seen rev_comment_id from a previous page.
+  list_comments : (nat64, opt nat64, opt nat32) -> (CommentsPage) query;
+  // Toggle like on a comment. If already liked, unlikes. If not liked, likes.
+  // Returns the new like count.
+  toggle_like : (nat64) -> (Result);
+  // Returns canister version info.
   version : () -> (text) query;
 }

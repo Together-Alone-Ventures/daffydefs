@@ -11,4 +11,5 @@ ic-cdk = "0.16"
 ic-cdk-timers = "0.9"
 candid = "0.10"
 serde = { version = "1", features = ["derive"] }
+ic-stable-structures = "0.6"
 shared = { path = "../shared" }

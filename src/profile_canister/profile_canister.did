@@ -1,4 +1,40 @@
-service : {
-  // Returns the canister version identifier.
+type DaffyError = variant {
+  ProfileDeleted : record { message : text };
+  InvalidInput : record { message : text };
+  ProfileNotFound : record { message : text };
+  NotAuthorized : record { message : text };
+  CanisterCallFailed : record { message : text };
+  AlreadyExists : record { message : text };
+  InvalidWord : record { message : text };
+  RateLimitExceeded : record { message : text };
+};
+type ProfileInfo = record {
+  owner : principal;
+  birthdate : text;
+  email : text;
+  display_name : text;
+  gender : text;
+};
+type ProfileInput = record {
+  birthdate : text;
+  email : text;
+  display_name : text;
+  gender : text;
+};
+type Result = variant { Ok; Err : DaffyError };
+type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
+service : (principal) -> {
+  // OWNER ONLY — tombstone all profile fields.
+  // The canister remains alive but get_display_name() returns None.
+  // Full canister deletion is handled by the Factory.
+  delete_profile : () -> (Result);
+  // PUBLIC — any caller can read the display name.
+  // Returns Some(name) if active, None if not set or deleted.
+  get_display_name : () -> (opt text) query;
+  // OWNER ONLY — returns full profile info.
+  get_profile : () -> (Result_1) query;
+  // OWNER ONLY — create or update profile fields.
+  upsert_profile : (ProfileInput) -> (Result_1);
+  // Returns the schema version (for diagnostics).
   version : () -> (text) query;
 }
