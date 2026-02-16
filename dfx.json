@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "canisters": {
+    "internet_identity": {
+      "type": "pull",
+      "id": "rdmx6-jaaaa-aaaaa-aaadq-cai"
+    },
+    "bulletin_board": {
+      "type": "custom",
+      "candid": "src/bulletin_board/bulletin_board.did",
+      "wasm": "wasm_out/bulletin_board.wasm",
+      "build": "",
+      "metadata": [
+        {
+          "name": "candid:service"
+        }
+      ]
+    },
+    "profile_factory": {
+      "type": "custom",
+      "candid": "src/profile_factory/profile_factory.did",
+      "wasm": "wasm_out/profile_factory.wasm",
+      "build": "",
+      "metadata": [
+        {
+          "name": "candid:service"
+        }
+      ]
+    },
+    "profile_canister": {
+      "type": "custom",
+      "candid": "src/profile_canister/profile_canister.did",
+      "wasm": "wasm_out/profile_canister.wasm",
+      "build": "",
+      "deploy": false,
+      "metadata": [
+        {
+          "name": "candid:service"
+        }
+      ]
+    },
+    "frontend": {
+      "type": "assets",
+      "source": ["src/frontend/dist"],
+      "dependencies": ["bulletin_board", "profile_factory"]
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": ""
+    }
+  },
+  "output_env_file": ".env",
+  "networks": {
+    "local": {
+      "bind": "127.0.0.1:4943",
+      "type": "ephemeral"
+    }
+  }
+}

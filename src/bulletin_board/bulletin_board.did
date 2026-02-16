@@ -1,0 +1,4 @@
+service : {
+  // Returns the canister version identifier.
+  version : () -> (text) query;
+}

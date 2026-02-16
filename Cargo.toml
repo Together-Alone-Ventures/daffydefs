@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "src/bulletin_board",
+    "src/profile_canister",
+    "src/profile_factory",
+    "src/shared",
+]
+resolver = "2"
