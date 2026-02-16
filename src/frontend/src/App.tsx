@@ -1,17 +1,23 @@
 import { useState, useEffect, useCallback } from "react";
 import { AuthClient } from "@dfinity/auth-client";
+import { HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
 import {
   createAgent,
   createFactoryActor,
+  createBoardActor,
   createProfileActor,
   isOk,
   getError,
   II_URL,
   isLocal,
 } from "./ic/agent";
+import { clearNameCache } from "./ic/resolve";
 import ProfileSetup from "./components/ProfileSetup";
 import ProfileView from "./components/ProfileView";
+import ChallengeFeed from "./components/ChallengeFeed";
+import CreateChallenge from "./components/CreateChallenge";
+import ChallengeDetail from "./components/ChallengeDetail";
 import "./App.css";
 
 // ============================================================
@@ -20,11 +26,14 @@ import "./App.css";
 
 type Screen =
   | "loading"
-  | "unauthenticated"
-  | "initializing"     // authenticated, loading profile canister
-  | "profile-setup"    // has canister but no profile data yet
-  | "profile-view"     // has active profile
-  | "profile-deleted"  // profile was deleted, offer rejoin
+  | "unauthenticated-feed"  // browsing feed without auth
+  | "feed"                  // authenticated feed
+  | "initializing"          // authenticated, loading profile canister
+  | "profile-setup"         // has canister but no profile data yet
+  | "profile-view"          // viewing/editing profile
+  | "profile-deleted"       // profile was deleted, offer rejoin
+  | "create-challenge"      // posting a new word
+  | "challenge-detail"      // viewing a challenge + comments
   | "error";
 
 interface ProfileData {
@@ -41,6 +50,7 @@ interface ProfileData {
 
 function App() {
   const [authClient, setAuthClient] = useState<AuthClient | null>(null);
+  const [agent, setAgent] = useState<HttpAgent | null>(null);
   const [principal, setPrincipal] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +61,13 @@ function App() {
   const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
 
-  // Actors (set after auth)
+  // Actors
   const [factoryActor, setFactoryActor] = useState<any>(null);
+  const [boardActor, setBoardActor] = useState<any>(null);
   const [profileActor, setProfileActor] = useState<any>(null);
+
+  // Navigation state
+  const [selectedChallengeId, setSelectedChallengeId] = useState<bigint | null>(null);
 
   // ----------------------------------------------------------
   // Initialize auth client on mount
@@ -66,7 +80,19 @@ function App() {
       if (authenticated) {
         await handleAuthenticated(client);
       } else {
-        setScreen("unauthenticated");
+        // Create anonymous agent for browsing the feed
+        try {
+          const anonAgent = await HttpAgent.create({
+            host: isLocal ? "http://127.0.0.1:4943" : "https://icp-api.io",
+          });
+          if (isLocal) await anonAgent.fetchRootKey();
+          setAgent(anonAgent);
+          const board = createBoardActor(anonAgent);
+          setBoardActor(board);
+        } catch (e) {
+          // If anonymous agent fails, still show the page
+        }
+        setScreen("unauthenticated-feed");
       }
     });
   }, []);
@@ -81,12 +107,14 @@ function App() {
       setPrincipal(principalText);
       setScreen("initializing");
 
-      // Create agent
-      const agent = await createAgent(identity);
+      const newAgent = await createAgent(identity);
+      setAgent(newAgent);
 
-      // Create factory actor
-      const factory = createFactoryActor(agent);
+      // Create actors
+      const factory = createFactoryActor(newAgent);
       setFactoryActor(factory);
+      const board = createBoardActor(newAgent);
+      setBoardActor(board);
 
       // Get or create profile canister
       const result = await factory.get_or_create_profile_canister();
@@ -96,11 +124,9 @@ function App() {
         const canisterIdText = canisterId.toText();
         setProfileCanisterId(canisterIdText);
 
-        // Create dynamic actor for this user's profile canister
-        const profActor = createProfileActor(agent, canisterId);
+        const profActor = createProfileActor(newAgent, canisterId);
         setProfileActor(profActor);
 
-        // Load profile data
         await loadProfile(profActor);
       } else {
         setError(`Factory error: ${getError(result as any)}`);
@@ -113,12 +139,11 @@ function App() {
   }, []);
 
   // ----------------------------------------------------------
-  // Load profile from the user's profile canister
+  // Load profile
   // ----------------------------------------------------------
   const loadProfile = async (actor: any) => {
     try {
       const result = await actor.get_profile();
-
       if (isOk(result)) {
         const info = (result as any).Ok;
         setProfileData({
@@ -128,13 +153,11 @@ function App() {
           gender: info.gender,
           display_name: info.display_name,
         });
-        setScreen("profile-view");
+        setScreen("feed");
       } else {
         const errStr = getError(result);
         if (errStr.startsWith("ProfileNotFound")) {
           setScreen("profile-setup");
-        } else if (errStr.startsWith("ProfileDeleted")) {
-          setScreen("profile-deleted");
         } else {
           setError(`Profile load error: ${errStr}`);
           setScreen("error");
@@ -153,7 +176,6 @@ function App() {
   const handleLogin = async () => {
     if (!authClient) return;
     setError(null);
-
     try {
       await authClient.login({
         identityProvider: II_URL,
@@ -173,12 +195,26 @@ function App() {
   const handleLogout = async () => {
     if (!authClient) return;
     await authClient.logout();
+    clearNameCache();
     setPrincipal(null);
     setProfileCanisterId(null);
     setProfileData(null);
     setProfileActor(null);
     setFactoryActor(null);
-    setScreen("unauthenticated");
+    setSelectedChallengeId(null);
+
+    // Recreate anonymous agent
+    try {
+      const anonAgent = await HttpAgent.create({
+        host: isLocal ? "http://127.0.0.1:4943" : "https://icp-api.io",
+      });
+      if (isLocal) await anonAgent.fetchRootKey();
+      setAgent(anonAgent);
+      const board = createBoardActor(anonAgent);
+      setBoardActor(board);
+    } catch (e) {}
+
+    setScreen("unauthenticated-feed");
     setError(null);
     setActionError(null);
   };
@@ -192,7 +228,6 @@ function App() {
     if (!profileActor) return;
     setActionLoading(true);
     setActionError(null);
-
     try {
       const result = await profileActor.upsert_profile(input);
       if (isOk(result)) {
@@ -204,7 +239,7 @@ function App() {
           gender: info.gender,
           display_name: info.display_name,
         });
-        setScreen("profile-view");
+        setScreen("feed");
       } else {
         setActionError(getError(result));
       }
@@ -215,20 +250,10 @@ function App() {
     }
   };
 
-  const handleUpdateProfile = async (input: {
-    email: string;
-    birthdate: string;
-    gender: string;
-    display_name: string;
-  }) => {
-    await handleSaveProfile(input);
-  };
-
   const handleDeleteProfile = async () => {
     if (!factoryActor) return;
     setActionLoading(true);
     setActionError(null);
-
     try {
       const result = await factoryActor.delete_profile_canister();
       if (isOk(result as any)) {
@@ -250,7 +275,6 @@ function App() {
     if (!authClient) return;
     setActionLoading(true);
     setActionError(null);
-
     try {
       await handleAuthenticated(authClient);
     } catch (e: any) {
@@ -260,21 +284,31 @@ function App() {
     }
   };
 
+  // Navigation helpers
+  const goToFeed = () => {
+    setSelectedChallengeId(null);
+    setScreen(principal ? "feed" : "unauthenticated-feed");
+  };
+
+  const isAuthenticated = !!principal && screen !== "unauthenticated-feed";
+  const showFeed = screen === "feed" || screen === "unauthenticated-feed";
+
   // ----------------------------------------------------------
   // Render
   // ----------------------------------------------------------
 
   return (
     <div className="app">
-      <header className="header">
+      <header className="header" onClick={goToFeed} style={{ cursor: "pointer" }}>
         <h1>DaffyDefs</h1>
         <p className="subtitle">Daffy definitions for daffy words</p>
       </header>
 
-      {principal && screen !== "unauthenticated" && screen !== "loading" && (
+      {/* Session bar */}
+      {principal && screen !== "loading" && (
         <div className="session-bar">
           <span className="principal-display">
-            {principal.slice(0, 8)}...{principal.slice(-5)}
+            {profileData?.display_name || `${principal.slice(0, 8)}...${principal.slice(-5)}`}
           </span>
           {isLocal && <span className="network-badge">local</span>}
           <button className="button-link" onClick={handleLogout}>
@@ -283,30 +317,78 @@ function App() {
         </div>
       )}
 
+      {/* Unauthenticated session bar */}
+      {!principal && screen === "unauthenticated-feed" && (
+        <div className="session-bar">
+          <span className="muted" style={{ fontSize: "0.85rem" }}>Browsing as guest</span>
+          <button className="button-link" onClick={handleLogin} style={{ marginLeft: "auto" }}>
+            Sign In
+          </button>
+        </div>
+      )}
+
       <main className="main">
+        {/* Loading */}
         {screen === "loading" && (
           <div className="center-message">
+            <div className="spinner" />
             <p>Loading...</p>
           </div>
         )}
 
-        {screen === "unauthenticated" && (
-          <div className="center-message">
-            <p>Sign in to create challenges, add definitions, and like your favourites.</p>
-            <button className="button button-primary" onClick={handleLogin}>
-              Sign In with Internet Identity
-            </button>
-            {error && <p className="error">{error}</p>}
-          </div>
-        )}
-
+        {/* Initializing */}
         {screen === "initializing" && (
           <div className="center-message">
-            <p>Setting up your profile canister...</p>
             <div className="spinner" />
+            <p>Setting up your profile canister...</p>
           </div>
         )}
 
+        {/* Feed (authenticated or guest) */}
+        {showFeed && !selectedChallengeId && boardActor && (
+          <ChallengeFeed
+            boardActor={boardActor}
+            factoryActor={factoryActor}
+            agent={agent}
+            isAuthenticated={isAuthenticated}
+            myPrincipal={principal}
+            onSelectChallenge={(id) => {
+              setSelectedChallengeId(id);
+              setScreen(principal ? "challenge-detail" : "challenge-detail");
+            }}
+            onCreateChallenge={() => setScreen("create-challenge")}
+            onShowProfile={() => setScreen("profile-view")}
+          />
+        )}
+
+        {/* Challenge Detail */}
+        {(screen === "challenge-detail" || (showFeed && selectedChallengeId)) &&
+          selectedChallengeId &&
+          boardActor && (
+            <ChallengeDetail
+              challengeId={selectedChallengeId}
+              boardActor={boardActor}
+              factoryActor={factoryActor}
+              agent={agent}
+              isAuthenticated={isAuthenticated}
+              myPrincipal={principal}
+              onBack={goToFeed}
+            />
+          )}
+
+        {/* Create Challenge */}
+        {screen === "create-challenge" && boardActor && (
+          <CreateChallenge
+            boardActor={boardActor}
+            onCreated={(id) => {
+              setSelectedChallengeId(id);
+              setScreen("challenge-detail");
+            }}
+            onCancel={goToFeed}
+          />
+        )}
+
+        {/* Profile Setup */}
         {screen === "profile-setup" && (
           <ProfileSetup
             onSave={handleSaveProfile}
@@ -315,23 +397,24 @@ function App() {
           />
         )}
 
+        {/* Profile View */}
         {screen === "profile-view" && profileData && profileCanisterId && (
           <ProfileView
             profile={profileData}
             profileCanisterId={profileCanisterId}
-            onUpdate={handleUpdateProfile}
+            onUpdate={handleSaveProfile}
             onDelete={handleDeleteProfile}
             loading={actionLoading}
             error={actionError}
           />
         )}
 
+        {/* Profile Deleted */}
         {screen === "profile-deleted" && (
           <div className="card">
             <h2>Profile Deleted</h2>
             <p className="muted">
-              Your profile canister has been permanently deleted. Your challenges and comments
-              on the bulletin board remain but will show as "[deleted user]".
+              Your profile canister has been permanently deleted.
             </p>
             <div className="button-row">
               <button
@@ -349,6 +432,7 @@ function App() {
           </div>
         )}
 
+        {/* Error */}
         {screen === "error" && (
           <div className="card">
             <h2>Something went wrong</h2>
@@ -363,7 +447,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>DaffyDefs v0.1.0 — Phase 3a</p>
+        <p>DaffyDefs v0.2.0 — Phase 3b</p>
       </footer>
     </div>
   );

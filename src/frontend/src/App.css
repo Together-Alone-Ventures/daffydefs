@@ -50,8 +50,7 @@ body {
 }
 
 .principal-display {
-  font-family: monospace;
-  color: #aaa;
+  color: #ccc;
 }
 
 .network-badge {
@@ -106,9 +105,20 @@ body {
   font-size: 1.3rem;
 }
 
+.card h3 {
+  color: #ccc;
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.muted-card {
+  background: #141b2d;
+}
+
 /* Forms */
 .form-group {
   margin-bottom: 1rem;
+  position: relative;
 }
 
 .form-group label {
@@ -119,7 +129,8 @@ body {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
   background: #0f3460;
@@ -127,17 +138,35 @@ body {
   border-radius: 6px;
   color: #eee;
   font-size: 0.95rem;
+  font-family: inherit;
+  resize: vertical;
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: #e94560;
 }
 
 .form-group input:disabled,
-.form-group select:disabled {
+.form-group select:disabled,
+.form-group textarea:disabled {
   opacity: 0.5;
+}
+
+.field-hint {
+  color: #e94560;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.char-count {
+  position: absolute;
+  right: 0.75rem;
+  bottom: -1.3rem;
+  font-size: 0.75rem;
+  color: #555;
 }
 
 /* Profile fields */
@@ -182,6 +211,11 @@ body {
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.button-sm {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
 }
 
 .button-primary {
@@ -250,7 +284,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* Placeholder for future sections */
+/* Placeholder */
 .placeholder {
   background: #1a1a2e;
   padding: 1.5rem;
@@ -281,4 +315,167 @@ body {
   padding-top: 2rem;
   color: #555;
   font-size: 0.8rem;
+}
+
+/* ============================================================
+   FEED
+   ============================================================ */
+
+.feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.feed-header h2 {
+  color: #e94560;
+  font-size: 1.3rem;
+}
+
+.feed-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Challenge cards in feed */
+.challenge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.challenge-card {
+  background: #16213e;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.challenge-card:hover {
+  background: #1c2a4a;
+  transform: translateY(-1px);
+}
+
+.challenge-word {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #e94560;
+  margin-bottom: 0.35rem;
+}
+
+.challenge-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.challenge-comments {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.load-more {
+  text-align: center;
+  margin-top: 1rem;
+}
+
+/* ============================================================
+   CHALLENGE DETAIL
+   ============================================================ */
+
+.back-link {
+  margin-bottom: 1rem;
+  display: inline-block;
+  font-size: 0.9rem;
+}
+
+.challenge-detail-card {
+  text-align: center;
+}
+
+.challenge-word-large {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #e94560;
+  margin-bottom: 0.5rem;
+}
+
+/* Definitions section */
+.definitions-section {
+  margin-top: 1rem;
+}
+
+.section-title {
+  color: #aaa;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #222;
+}
+
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comment-card {
+  background: #16213e;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+}
+
+.comment-text {
+  color: #ddd;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.comment-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.comment-author {
+  color: #7ec8e3;
+}
+
+.comment-time {
+  color: #555;
+}
+
+/* Like button */
+.like-button {
+  background: none;
+  border: 1px solid #333;
+  color: #888;
+  padding: 2px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-left: auto;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.like-button:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.1);
+  border-color: #e94560;
+}
+
+.like-button.liked {
+  border-color: #e94560;
+  color: #e94560;
+}
+
+.like-button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }

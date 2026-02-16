@@ -59,7 +59,6 @@ export default function ProfileView({
         <h2>Delete Profile?</h2>
         <p className="warning-text">
           This will permanently delete your profile canister and all its data.
-          Your challenges and comments on the bulletin board will remain but show as "[deleted user]".
         </p>
         <p className="muted">You can rejoin later with a new profile.</p>
 
@@ -202,10 +201,6 @@ export default function ProfileView({
         >
           Delete Profile
         </button>
-      </div>
-
-      <div className="placeholder" style={{ marginTop: "1.5rem" }}>
-        <p>Bulletin board coming in Phase 3b...</p>
       </div>
     </div>
   );
