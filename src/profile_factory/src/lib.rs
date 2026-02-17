@@ -29,7 +29,7 @@ use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, StableCell};
 use shared::{log_error, log_event, DaffyError, StorablePrincipal, SCHEMA_VERSION_V1};
 use std::cell::RefCell;
 
-const CYCLES_PER_PROFILE_CANISTER: u128 = 500_000_000_000;
+const CYCLES_PER_PROFILE_CANISTER: u128 = 1_000_000_000_000;
 const PROFILE_CANISTER_WASM: &[u8] = include_bytes!("../profile_canister_embedded.wasm");
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
@@ -135,7 +135,7 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
     }
 
     let balance = ic_cdk::api::canister_balance128();
-    if balance < CYCLES_PER_PROFILE_CANISTER * 2 {
+    if balance < CYCLES_PER_PROFILE_CANISTER + 100_000_000_000 {
         log_error!(
             "Insufficient cycles: have {}, need {} (with buffer)",
             balance,
