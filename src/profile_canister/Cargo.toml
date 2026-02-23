@@ -7,9 +7,14 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-ic-cdk = "0.16"
+ic-cdk = "0.17"
 ic-cdk-timers = "0.9"
 candid = "0.10"
 serde = { version = "1", features = ["derive"] }
 ic-stable-structures = "0.6"
 shared = { path = "../shared" }
+
+# MKTd02: Cryptographically Verifiable Deletion Receipts
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", package = "mktd02" }
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", package = "zombie-core" }
+hex = "0.4"
