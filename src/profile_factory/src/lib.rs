@@ -256,4 +256,80 @@ async fn delete_profile_canister() -> Result<(), DaffyError> {
     Ok(())
 }
 
+/// Checks that the caller is a controller of this factory canister.
+/// Controllers are set at canister creation/update-settings time.
+fn require_admin() -> Result<Principal, DaffyError> {
+    let caller = ic_cdk::caller();
+    if !ic_cdk::api::is_controller(&caller) {
+        return Err(DaffyError::NotAuthorized {
+            message: "Only factory controllers can perform this action".into(),
+        });
+    }
+    Ok(caller)
+}
+
+/// ADMIN ONLY — upgrade a user's profile canister to the latest embedded WASM.
+/// This pushes the current factory-embedded profile_canister code to an existing
+/// profile canister. Used when the profile canister code has been updated
+/// (e.g., MKTd02 integration) and needs to be rolled out to existing users.
+///
+/// The target canister's post_upgrade() hook will run automatically after
+/// the new code is installed, preserving all stable memory data.
+#[ic_cdk::update]
+async fn upgrade_profile_canister(user_principal: Principal) -> Result<(), DaffyError> {
+    let admin = require_admin()?;
+    let storable_principal = StorablePrincipal::new(user_principal);
+
+    // Look up the user's profile canister
+    let canister_id = PROFILE_MAP
+        .with(|pm| pm.borrow().get(&storable_principal))
+        .ok_or_else(|| DaffyError::ProfileNotFound {
+            message: format!("No profile canister found for {}", user_principal),
+        })?;
+
+    let canister_id_principal = *canister_id.principal();
+
+    // Upgrade with the currently embedded WASM
+    // post_upgrade() takes no arguments — it reads owner from stable memory
+    install_code(InstallCodeArgument {
+        mode: CanisterInstallMode::Upgrade(None),
+        canister_id: canister_id_principal,
+        wasm_module: PROFILE_CANISTER_WASM.to_vec(),
+        arg: Vec::new(),
+    })
+    .await
+    .map_err(|e| {
+        log_error!("upgrade install_code failed for {}: {:?}", canister_id_principal, e);
+        DaffyError::CanisterCallFailed {
+            message: format!("Failed to upgrade profile canister: {:?}", e),
+        }
+    })?;
+
+    log_event!(
+        "upgrade_profile_canister: upgraded {} for {} (by admin {})",
+        canister_id_principal,
+        user_principal,
+        admin
+    );
+
+    Ok(())
+}
+
+/// ADMIN ONLY — list all principal → canister_id mappings.
+/// Returns a Vec of (user_principal, canister_id) pairs.
+#[ic_cdk::query]
+fn list_all_profiles() -> Result<Vec<(Principal, Principal)>, DaffyError> {
+    require_admin()?;
+    
+    let entries: Vec<(Principal, Principal)> = PROFILE_MAP.with(|pm| {
+        pm.borrow()
+            .iter()
+            .map(|(k, v)| (*k.principal(), *v.principal()))
+            .collect()
+    });
+
+    Ok(entries)
+}
+
+
 ic_cdk::export_candid!();
