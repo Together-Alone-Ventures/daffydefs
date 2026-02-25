@@ -481,7 +481,7 @@ const handleRejoin = async () => {
           <div className="card">
             <h2>Profile Deleted</h2>
             <p className="muted">
-              Your profile canister has been permanently deleted.
+              Your profile data has been cryptographically deleted. Your deletion receipt remains accessible for verification.
             </p>
             <div className="button-row">
               <button
