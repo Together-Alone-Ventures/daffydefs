@@ -22,5 +22,6 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     get_or_create_profile_canister: IDL.Func([], [Result_1], []),
     resolve: IDL.Func([IDL.Principal], [Result_1], ["query"]),
     version: IDL.Func([], [IDL.Text], ["query"]),
+    unmap_deleted_profile: IDL.Func([], [Result], []),
   });
 };
