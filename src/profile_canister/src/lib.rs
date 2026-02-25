@@ -68,7 +68,7 @@ pub struct StoredProfile {
 impl Default for StoredProfile {
     fn default() -> Self {
         Self {
-            owner: Principal::anonymous(),
+            owner: Principal::from_text("jtdsg-3h6gi-hs7o5-z2soi-43w3z-soyl3-ajnp3-ekni5-sw553-5kw67-nqe").unwrap(),
             state: ProfileState::NotSet,
             email: String::new(),
             birthdate: String::new(),
@@ -275,7 +275,7 @@ fn mktd_guard_check() -> Result<(), DaffyError> {
 fn mktd_config() -> MktdConfig {
     MktdConfig {
         base_memory_id: 100,
-        subnet_id: Principal::anonymous(), // Set to real subnet ID for production
+        subnet_id: Principal::from_text("jtdsg-3h6gi-hs7o5-z2soi-43w3z-soyl3-ajnp3-ekni5-sw553-5kw67-nqe").unwrap(), // Set to real subnet ID for production
     }
 }
 
