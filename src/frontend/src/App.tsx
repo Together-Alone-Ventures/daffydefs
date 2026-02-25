@@ -302,12 +302,27 @@ const handleDeleteProfile = async () => {
     }
   };
 
-  const handleRejoin = async () => {
-    if (!authClient) return;
+const handleRejoin = async () => {
+    if (!agent) return;
     setActionLoading(true);
     setActionError(null);
     try {
-      await handleAuthenticated(authClient);
+      const factoryActor = createFactoryActor(agent);
+
+      // 1. Unmap the old tombstoned canister (CVDR preserved)
+      const unmapResult = await factoryActor.unmap_deleted_profile();
+      if (!isOk(unmapResult)) {
+        throw new Error(getError(unmapResult));
+      }
+
+      // 2. Create fresh canister
+      const createResult = await factoryActor.get_or_create_profile_canister();
+      if (!isOk(createResult)) {
+        throw new Error(getError(createResult));
+      }
+
+      // 3. Navigate to profile setup
+      setScreen("profile-setup");
     } catch (e: any) {
       setActionError(`Rejoin failed: ${e.message || e}`);
     } finally {
