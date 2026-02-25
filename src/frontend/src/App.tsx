@@ -310,13 +310,13 @@ const handleRejoin = async () => {
       const factoryActor = createFactoryActor(agent);
 
       // 1. Unmap the old tombstoned canister (CVDR preserved)
-      const unmapResult = await factoryActor.unmap_deleted_profile();
+      const unmapResult = await factoryActor.unmap_deleted_profile() as any;
       if (!isOk(unmapResult)) {
         throw new Error(getError(unmapResult));
       }
 
       // 2. Create fresh canister
-      const createResult = await factoryActor.get_or_create_profile_canister();
+      const createResult = await factoryActor.get_or_create_profile_canister() as any;
       if (!isOk(createResult)) {
         throw new Error(getError(createResult));
       }
