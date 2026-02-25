@@ -304,34 +304,6 @@ const handleDeleteProfile = async () => {
     }
   };
 
-const handleRejoin = async () => {
-    if (!agent) return;
-    setActionLoading(true);
-    setActionError(null);
-    try {
-      const factoryActor = createFactoryActor(agent);
-
-      // 1. Unmap the old tombstoned canister (CVDR preserved)
-      const unmapResult = await factoryActor.unmap_deleted_profile() as any;
-      if (!isOk(unmapResult)) {
-        throw new Error(getError(unmapResult));
-      }
-
-      // 2. Create fresh canister
-      const createResult = await factoryActor.get_or_create_profile_canister() as any;
-      if (!isOk(createResult)) {
-        throw new Error(getError(createResult));
-      }
-
-      // 3. Navigate to profile setup
-      setScreen("profile-setup");
-    } catch (e: any) {
-      setActionError(`Rejoin failed: ${e.message || e}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   // Navigation helpers
   const goToFeed = () => {
     setSelectedChallengeId(null);
@@ -483,21 +455,13 @@ const handleRejoin = async () => {
           <div className="card">
             <h2>Profile Deleted</h2>
             <p className="muted">
-              Your profile data has been cryptographically deleted. Your deletion receipt remains accessible for verification.
+              Your personal data has been cryptographically deleted. Your deletion receipt remains accessible for verification. To use DaffyDefs again, sign up with a new Internet Identity.
             </p>
             <div className="button-row">
-              <button
-                className="button button-primary"
-                onClick={handleRejoin}
-                disabled={actionLoading}
-              >
-                {actionLoading ? "Rejoining..." : "Rejoin with New Profile"}
-              </button>
               <button className="button button-secondary" onClick={handleLogout}>
                 Sign Out
               </button>
             </div>
-            {actionError && <p className="error">{actionError}</p>}
           </div>
         )}
 
