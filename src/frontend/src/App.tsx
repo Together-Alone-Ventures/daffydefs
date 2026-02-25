@@ -18,6 +18,8 @@ import ProfileView from "./components/ProfileView";
 import ChallengeFeed from "./components/ChallengeFeed";
 import CreateChallenge from "./components/CreateChallenge";
 import ChallengeDetail from "./components/ChallengeDetail";
+import DeletionReceipt from "./components/DeletionReceipt";
+import { CvdrData } from "./components/DeletionReceipt";
 import "./App.css";
 
 // ============================================================
@@ -34,6 +36,7 @@ type Screen =
   | "profile-deleted"       // profile was deleted, offer rejoin
   | "create-challenge"      // posting a new word
   | "challenge-detail"      // viewing a challenge + comments
+  | "deletion-receipt" 
   | "error";
 
 interface ProfileData {
@@ -56,6 +59,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [cvdrData, setCvdrData] = useState<CvdrData | null>(null);
 
   // Profile state
   const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
@@ -250,17 +254,44 @@ function App() {
     }
   };
 
-  const handleDeleteProfile = async () => {
-    if (!factoryActor) return;
+const handleDeleteProfile = async () => {
+    if (!profileActor || !profileCanisterId) return;
     setActionLoading(true);
     setActionError(null);
     try {
-      const result = await factoryActor.delete_profile_canister();
+      // Call the profile canister's delete_profile (MKTd02 tombstone + receipt)
+      const result = await profileActor.delete_profile();
       if (isOk(result as any)) {
-        setProfileData(null);
-        setProfileActor(null);
-        setProfileCanisterId(null);
-        setScreen("profile-deleted");
+        // result.Ok is the receipt_id (hex string)
+        const receiptId = (result as any).Ok;
+
+        // Fetch the full CVDR
+        const receiptResult = await profileActor.mktd_get_receipt(receiptId);
+        if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
+          const r = receiptResult[0];
+          setCvdrData({
+            receipt_id: r.receipt_id,
+            canister_id: r.canister_id.toText(),
+            subnet_id: r.subnet_id.toText(),
+            commit_mode: r.commit_mode,
+            pre_state_hash: r.pre_state_hash,
+            post_state_hash: r.post_state_hash,
+            tombstone_hash: r.tombstone_hash,
+            deletion_event_hash: r.deletion_event_hash,
+            certified_commitment: r.certified_commitment,
+            manifest_hash: r.manifest_hash,
+            module_hash: r.module_hash,
+            timestamp: r.timestamp,
+            nonce: r.nonce,
+          });
+          setScreen("deletion-receipt");
+        } else {
+          // Receipt created but couldn't fetch it — still show success
+          setActionError(
+            `Profile deleted. Receipt ID: ${receiptId} (could not fetch full receipt)`
+          );
+          setScreen("profile-deleted");
+        }
       } else {
         setActionError(getError(result as any));
       }
@@ -409,7 +440,28 @@ function App() {
           />
         )}
 
-        {/* Profile Deleted */}
+      {screen === "deletion-receipt" && cvdrData && profileCanisterId && (
+              <>
+                <nav className="top-bar">
+                  <span className="username">Account Deleted</span>
+                </nav>
+                <main className="main-content">
+                  <DeletionReceipt
+                    receipt={cvdrData}
+                    profileCanisterId={profileCanisterId}
+                    onDone={() => {
+                      setProfileData(null);
+                      setProfileActor(null);
+                      setProfileCanisterId(null);
+                      setCvdrData(null);
+                      setScreen("profile-deleted");
+                    }}
+                  />
+                </main>
+              </>
+            )}
+
+                {/* Profile Deleted */}
         {screen === "profile-deleted" && (
           <div className="card">
             <h2>Profile Deleted</h2>
