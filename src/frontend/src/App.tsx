@@ -162,6 +162,8 @@ function App() {
         const errStr = getError(result);
         if (errStr.startsWith("ProfileNotFound")) {
           setScreen("profile-setup");
+        } else if (errStr.startsWith("ProfileDeleted")) {
+          setScreen("profile-deleted");
         } else {
           setError(`Profile load error: ${errStr}`);
           setScreen("error");
