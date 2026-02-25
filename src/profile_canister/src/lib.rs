@@ -68,7 +68,7 @@ pub struct StoredProfile {
 impl Default for StoredProfile {
     fn default() -> Self {
         Self {
-            owner: Principal::from_text("jtdsg-3h6gi-hs7o5-z2soi-43w3z-soyl3-ajnp3-ekni5-sw553-5kw67-nqe").unwrap(),
+            owner: Principal::anonymous(),
             state: ProfileState::NotSet,
             email: String::new(),
             birthdate: String::new(),
