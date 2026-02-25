@@ -58,9 +58,9 @@ export default function ProfileView({
       <div className="card">
         <h2>Delete Profile?</h2>
         <p className="warning-text">
-          This will permanently delete your profile canister and all its data.
+          This will permanently delete your personal data and generate a cryptographic deletion receipt as proof.
         </p>
-        <p className="muted">You can rejoin later with a new profile.</p>
+        <p className="muted">Your deletion receipt will be displayed for download. You can use it to verify the deletion independently. You can rejoin later with a new profile.</p>
 
         {error && <p className="error">{error}</p>}
 
