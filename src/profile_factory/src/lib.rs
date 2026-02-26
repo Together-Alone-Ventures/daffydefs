@@ -332,4 +332,27 @@ fn list_all_profiles() -> Result<Vec<(Principal, Principal)>, DaffyError> {
 }
 
 
+
+/// Remove the mapping for a deleted (tombstoned) profile canister.
+/// The old canister is NOT destroyed — its CVDR remains queryable.
+/// After this, get_or_create_profile_canister() will create a fresh canister.
+#[ic_cdk::update]
+fn unmap_deleted_profile() -> Result<(), DaffyError> {
+    let caller = require_authenticated()?;
+    let storable_caller = StorablePrincipal::new(caller);
+
+    let _old = PROFILE_MAP
+        .with(|pm| pm.borrow().get(&storable_caller))
+        .ok_or_else(|| DaffyError::ProfileNotFound {
+            message: "No profile canister exists for this principal".into(),
+        })?;
+
+    PROFILE_MAP.with(|pm| {
+        pm.borrow_mut().remove(&storable_caller);
+    });
+
+    log_event!("unmap_deleted_profile: unmapped canister for {}", caller);
+    Ok(())
+}
+
 ic_cdk::export_candid!();
