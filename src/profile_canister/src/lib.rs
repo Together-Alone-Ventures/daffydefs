@@ -279,6 +279,27 @@ fn mktd_config() -> MktdConfig {
     }
 }
 
+/// Decode a hex-encoded module hash, or return zeros if absent.
+/// Traps if the hex is present but malformed or wrong length.
+fn decode_module_hash(hex_opt: &Option<String>) -> [u8; 32] {
+    match hex_opt {
+        Some(hex_str) if !hex_str.is_empty() => {
+            let bytes = hex::decode(hex_str)
+                .unwrap_or_else(|e| ic_cdk::trap(&format!("Invalid module_hash hex: {}", e)));
+            if bytes.len() != 32 {
+                ic_cdk::trap(&format!(
+                    "module_hash must be 32 bytes (64 hex chars), got {} bytes",
+                    bytes.len()
+                ));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            arr
+        }
+        _ => [0u8; 32],
+    }
+}
+
 // ============================================================
 // Lifecycle hooks
 // ============================================================
@@ -286,7 +307,7 @@ fn mktd_config() -> MktdConfig {
 /// Called when the canister is first created.
 /// The factory passes the owner principal as the init argument.
 #[ic_cdk::init]
-fn init(owner: Principal) {
+fn init(owner: Principal, module_hash_hex: Option<String>) {
     // Write schema version
     SCHEMA_VERSION.with(|v| {
         v.borrow_mut()
@@ -308,25 +329,27 @@ fn init(owner: Principal) {
             .expect("Failed to write initial profile")
     });
 
-    // Initialise MKTd02 — computes initial state hash and publishes
-    // certified commitment. Module hash is zeros at init (updated on
-    // first post_upgrade with the real WASM hash).
+    // Decode module hash: deployer passes hex-encoded SHA-256 of the
+    // installed WASM. Falls back to zeros if omitted (local dev only —
+    // V3 verification is non-functional with zeros).
+    let module_hash = decode_module_hash(&module_hash_hex);
+
     let adapter = ProfileAdapter;
     MEMORY_MANAGER.with(|mm| {
-        mktd02::init(&adapter, &mm.borrow(), mktd_config());
+        mktd02::init(&adapter, &mm.borrow(), mktd_config(), module_hash);
     });
 
-    log_event!("profile_canister init for owner {} (MKTd02 enabled)", owner);
+    log_event!("profile_canister init for owner {} (MKTd02 enabled, module_hash: {})",
+        owner, module_hash_hex.as_deref().unwrap_or("zeros"));
 }
 
 /// Called on canister upgrade. Checks schema version, then runs
 /// MKTd02 upgrade cascade (manifest check + module hash update).
 #[ic_cdk::post_upgrade]
-fn post_upgrade() {
+fn post_upgrade(module_hash_hex: Option<String>) {
     let version = SCHEMA_VERSION.with(|v| *v.borrow().get());
     match version {
         0 => {
-            // Uninitialised — treat as v1 (e.g., canister from before versioning)
             SCHEMA_VERSION.with(|v| {
                 v.borrow_mut()
                     .set(SCHEMA_VERSION_V1)
@@ -345,16 +368,17 @@ fn post_upgrade() {
         }
     }
 
-    // MKTd02 upgrade cascade: detects manifest changes, updates module_hash.
-    // Module hash: zeros for local dev. For production, pass the SHA-256 of
-    // the post-shrink WASM bytes ("hash what you ship").
+    // Decode module hash from deploy argument. Falls back to zeros if
+    // omitted (local dev only — V3 non-functional with zeros).
+    let module_hash = decode_module_hash(&module_hash_hex);
+
     let adapter = ProfileAdapter;
-    let module_hash = [0u8; 32]; // TODO: production builds pass real hash
     MEMORY_MANAGER.with(|mm| {
         mktd02::on_post_upgrade(&adapter, &mm.borrow(), mktd_config(), module_hash);
     });
 
-    log_event!("post_upgrade: MKTd02 cascade complete");
+    log_event!("post_upgrade: MKTd02 cascade complete (module_hash: {})",
+        module_hash_hex.as_deref().unwrap_or("zeros"));
 }
 
 // ============================================================
