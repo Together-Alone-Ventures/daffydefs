@@ -20,6 +20,7 @@
 //   post_upgrade: 0 → v1; v1 → ok; else → trap
 
 use candid::Principal;
+use sha2::{Sha256, Digest};
 use ic_cdk::api::management_canister::main::{
     create_canister, delete_canister, install_code, stop_canister, CanisterIdRecord,
     CanisterInstallMode, CanisterSettings, CreateCanisterArgument, InstallCodeArgument,
@@ -289,13 +290,18 @@ async fn upgrade_profile_canister(user_principal: Principal) -> Result<(), Daffy
 
     let canister_id_principal = *canister_id.principal();
 
-    // Upgrade with the currently embedded WASM
-    // post_upgrade() takes no arguments — it reads owner from stable memory
+    // Compute SHA-256 of the embedded WASM — "hash what you ship"
+    // This is the exact bytes that get deployed, post ic-wasm shrink.
+    let module_hash_bytes = Sha256::digest(PROFILE_CANISTER_WASM);
+    let module_hash_hex: Option<String> = Some(hex::encode(&module_hash_bytes));
+    let upgrade_arg = candid::encode_one(&module_hash_hex)
+        .expect("Failed to encode module_hash for upgrade arg");
+
     install_code(InstallCodeArgument {
         mode: CanisterInstallMode::Upgrade(None),
         canister_id: canister_id_principal,
         wasm_module: PROFILE_CANISTER_WASM.to_vec(),
-        arg: Vec::new(),
+        arg: upgrade_arg,
     })
     .await
     .map_err(|e| {

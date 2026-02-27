@@ -329,14 +329,10 @@ fn init(owner: Principal, module_hash_hex: Option<String>) {
             .expect("Failed to write initial profile")
     });
 
-    // Decode module hash: deployer passes hex-encoded SHA-256 of the
-    // installed WASM. Falls back to zeros if omitted (local dev only —
-    // V3 verification is non-functional with zeros).
-    let module_hash = decode_module_hash(&module_hash_hex);
 
     let adapter = ProfileAdapter;
     MEMORY_MANAGER.with(|mm| {
-        mktd02::init(&adapter, &mm.borrow(), mktd_config(), module_hash);
+        mktd02::init(&adapter, &mm.borrow(), mktd_config());
     });
 
     log_event!("profile_canister init for owner {} (MKTd02 enabled, module_hash: {})",

@@ -43,7 +43,7 @@ type ProfileInput = record {
 };
 type Result = variant { Ok : text; Err : DaffyError };
 type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
-service : (principal) -> {
+service : (principal, opt text) -> {
   // OWNER ONLY — tombstone all profile fields and generate a CVDR.
   // 
   // This replaces the old delete_profile() with cryptographically

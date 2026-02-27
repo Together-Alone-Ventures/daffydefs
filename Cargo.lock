@@ -593,10 +593,12 @@ name = "profile_factory"
 version = "0.1.0"
 dependencies = [
  "candid",
+ "hex",
  "ic-cdk 0.16.1",
  "ic-cdk-timers",
  "ic-stable-structures",
  "serde",
+ "sha2",
  "shared",
 ]
 
