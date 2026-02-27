@@ -171,7 +171,9 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
 
     let new_canister_id = create_result.0.canister_id;
 
-    let init_arg = candid::encode_one(&caller).map_err(|e| {
+    let module_hash_bytes = Sha256::digest(PROFILE_CANISTER_WASM);
+    let module_hash_hex: Option<String> = Some(hex::encode(&module_hash_bytes));
+    let init_arg = candid::encode_args((&caller, &module_hash_hex)).map_err(|e| {
         log_error!("Failed to encode init arg: {:?}", e);
         DaffyError::CanisterCallFailed {
             message: format!("Failed to encode init argument: {:?}", e),

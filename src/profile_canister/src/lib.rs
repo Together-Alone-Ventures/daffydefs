@@ -330,9 +330,10 @@ fn init(owner: Principal, module_hash_hex: Option<String>) {
     });
 
 
+    let module_hash = decode_module_hash(&module_hash_hex);
     let adapter = ProfileAdapter;
     MEMORY_MANAGER.with(|mm| {
-        mktd02::init(&adapter, &mm.borrow(), mktd_config());
+        mktd02::init(&adapter, &mm.borrow(), mktd_config(), module_hash);
     });
 
     log_event!("profile_canister init for owner {} (MKTd02 enabled, module_hash: {})",
@@ -366,8 +367,8 @@ fn post_upgrade(module_hash_hex: Option<String>) {
 
     // Decode module hash from deploy argument. Falls back to zeros if
     // omitted (local dev only — V3 non-functional with zeros).
-    let module_hash = decode_module_hash(&module_hash_hex);
 
+    let module_hash = decode_module_hash(&module_hash_hex);
     let adapter = ProfileAdapter;
     MEMORY_MANAGER.with(|mm| {
         mktd02::on_post_upgrade(&adapter, &mm.borrow(), mktd_config(), module_hash);
