@@ -9,19 +9,20 @@ type DaffyError = variant {
   RateLimitExceeded : record { message : text };
 };
 type MktdReceiptResponse = record {
+  protocol_version : text;
   receipt_id : text;
   subnet_id : principal;
   canister_id : principal;
-  post_state_hash : text;
-  manifest_hash : text;
-  deletion_event_hash : text;
-  nonce : nat64;
-  timestamp : nat64;
-  module_hash : text;
-  tombstone_hash : text;
-  commit_mode : text;
   pre_state_hash : text;
+  post_state_hash : text;
+  tombstone_hash : text;
+  deletion_event_hash : text;
   certified_commitment : text;
+  module_hash : text;
+  timestamp : nat64;
+  nonce : nat64;
+  bls_certificate : opt blob;
+  trust_root_key : blob;
 };
 type MktdStateHashResponse = record { certificate : opt blob; hash : blob };
 type MktdTombstoneStatus = record {
@@ -45,7 +46,7 @@ type Result = variant { Ok : text; Err : DaffyError };
 type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
 service : (principal, opt text) -> {
   // OWNER ONLY — tombstone all profile fields and generate a CVDR.
-  // 
+  //
   // This replaces the old delete_profile() with cryptographically
   // verifiable deletion. The receipt_id is returned as a hex string
   // for easy reference. Full receipt can be queried via mktd_get_receipt().
