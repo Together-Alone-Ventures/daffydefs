@@ -14,14 +14,17 @@
 //   get_display_name()  — public (any caller)
 //   get_profile()       — owner only
 //   upsert_profile()    — owner only
-//   delete_profile()    — owner only (now generates CVDR via MKTd02)
+//   delete_profile()    — owner only (Phase A: generates pending CVDR)
 //
-// MKTd02 integration:
+// MKTd02 integration (v0.2.0):
 //   ProfileAdapter implements MKTdDataSource
 //   mktd02::init() called in #[init]
 //   mktd02::on_post_upgrade() called in #[post_upgrade]
 //   mktd02::refresh_state_hash() called after every PII write
-//   mktd02::execute_deletion() called in delete_profile()
+//   Three-phase deletion flow:
+//     Phase A: mktd02::execute_deletion() in delete_profile()
+//     Phase B: mktd02::get_pending_certificate() in mktd_get_certificate()
+//     Phase C: mktd02::finalize_receipt() in mktd_finalize_receipt()
 
 use candid::{CandidType, Principal};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
@@ -35,7 +38,7 @@ use std::cell::RefCell;
 // MKTd02 imports
 use mktd02::trait_def::{CommitMode, MKTdDataSource};
 use mktd02::MktdConfig;
-use zombie_core::manifest::{compute_manifest_hash, FieldDescriptor};
+use zombie_core::manifest::FieldDescriptor;
 use zombie_core::serialisation::encode_pii_state;
 use zombie_core::tombstone::tombstone_constant;
 
@@ -124,6 +127,36 @@ pub struct MktdTombstoneStatus {
     pub tombstoned_at: Option<u64>,
 }
 
+/// Human-readable receipt response with hex-encoded hashes.
+///
+/// v0.2.0: Added protocol_version, bls_certificate, trust_root_key.
+///         Removed commit_mode, manifest_hash.
+#[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
+pub struct MktdReceiptResponse {
+    pub protocol_version: String,
+    pub receipt_id: String,
+    pub canister_id: Principal,
+    pub subnet_id: Principal,
+    pub pre_state_hash: String,
+    pub post_state_hash: String,
+    pub tombstone_hash: String,
+    pub deletion_event_hash: String,
+    pub certified_commitment: String,
+    pub module_hash: String,
+    pub timestamp: u64,
+    pub nonce: u64,
+    pub bls_certificate: Option<Vec<u8>>,
+    pub trust_root_key: Vec<u8>,
+}
+
+/// Phase B response: BLS certificate for pending receipt.
+#[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
+pub struct MktdPendingCertificateResponse {
+    pub receipt_id: String,
+    pub certified_commitment: Vec<u8>,
+    pub certificate: Vec<u8>,
+}
+
 // ============================================================
 // Stable memory setup
 // ============================================================
@@ -168,6 +201,9 @@ struct PiiState {
 ///
 /// This is the only DaffyDefs-specific code required for MKTd02 integration.
 /// Everything else is mechanical wiring (lifecycle hooks, guard, refresh).
+///
+/// v0.2.0: manifest_hash() removed from trait — PII boundary is now
+/// anchored by module_hash → archived source code.
 struct ProfileAdapter;
 
 impl MKTdDataSource for ProfileAdapter {
@@ -198,10 +234,6 @@ impl MKTdDataSource for ProfileAdapter {
                 field_order: 3,
             },
         ]
-    }
-
-    fn manifest_hash(&self) -> [u8; 32] {
-        compute_manifest_hash(&self.pii_field_manifest())
     }
 
     fn get_state_bytes(&self) -> Vec<u8> {
@@ -300,6 +332,25 @@ fn decode_module_hash(hex_opt: &Option<String>) -> [u8; 32] {
     }
 }
 
+/// Decode a hex-encoded receipt_id into a 32-byte array.
+/// Returns Err if the hex is invalid or wrong length.
+fn decode_receipt_id(hex_str: &str) -> Result<[u8; 32], DaffyError> {
+    let bytes = hex::decode(hex_str).map_err(|e| DaffyError::InvalidInput {
+        message: format!("Invalid receipt_id hex: {}", e),
+    })?;
+    if bytes.len() != 32 {
+        return Err(DaffyError::InvalidInput {
+            message: format!(
+                "receipt_id must be 32 bytes (64 hex chars), got {} bytes",
+                bytes.len()
+            ),
+        });
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
 // ============================================================
 // Lifecycle hooks
 // ============================================================
@@ -341,7 +392,10 @@ fn init(owner: Principal, module_hash_hex: Option<String>) {
 }
 
 /// Called on canister upgrade. Checks schema version, then runs
-/// MKTd02 upgrade cascade (manifest check + module hash update).
+/// MKTd02 upgrade cascade (state hash recomputation + module hash update).
+///
+/// NOTE: If a receipt is pending finalization, this will trap.
+/// Finalize the pending receipt before upgrading.
 #[ic_cdk::post_upgrade]
 fn post_upgrade(module_hash_hex: Option<String>) {
     let version = SCHEMA_VERSION.with(|v| *v.borrow().get());
@@ -452,7 +506,7 @@ fn get_profile() -> Result<ProfileInfo, DaffyError> {
 #[ic_cdk::query]
 fn version() -> String {
     let schema = SCHEMA_VERSION.with(|v| *v.borrow().get());
-    format!("profile_canister v0.1.0 (schema v{}, MKTd02 enabled)", schema)
+    format!("profile_canister v0.2.0 (schema v{}, MKTd02 enabled)", schema)
 }
 
 // ============================================================
@@ -501,11 +555,15 @@ fn upsert_profile(input: ProfileInput) -> Result<ProfileInfo, DaffyError> {
     Ok(result)
 }
 
-/// OWNER ONLY — tombstone all profile fields and generate a CVDR.
+/// OWNER ONLY — Phase A: tombstone all profile fields and generate a CVDR.
 ///
-/// This replaces the old delete_profile() with cryptographically
-/// verifiable deletion. The receipt_id is returned as a hex string
-/// for easy reference. Full receipt can be queried via mktd_get_receipt().
+/// The receipt_id is returned as a hex string. The receipt is in
+/// PENDING state (bls_certificate = None). To complete the flow:
+///   1. Call mktd_get_certificate() (query) to capture the BLS cert
+///   2. Call mktd_finalize_receipt() (update) to embed cert + root key
+///
+/// After this call, the finalization lock is held — no upgrades or
+/// state changes are permitted until the receipt is finalized.
 #[ic_cdk::update]
 fn delete_profile() -> Result<String, DaffyError> {
     let owner = require_owner()?;
@@ -528,7 +586,7 @@ fn delete_profile() -> Result<String, DaffyError> {
         Ok(())
     })?;
 
-    // Execute deletion via MKTd02 — this handles:
+    // Execute deletion via MKTd02 (Phase A) — this handles:
     // - Pre-state hash capture
     // - Tombstoning all PII fields (via adapter)
     // - Post-tombstone invariant check
@@ -536,7 +594,8 @@ fn delete_profile() -> Result<String, DaffyError> {
     // - Nonce increment
     // - All hash computations (tombstone_hash, deletion_event_hash, etc.)
     // - Certified commitment publication
-    // - Receipt generation and storage
+    // - Finalization lock acquisition
+    // - Receipt generation and storage (pending — no BLS cert yet)
     let mut adapter = ProfileAdapter;
     let receipt_id = mktd02::execute_deletion(&mut adapter, &mktd_config())
         .map_err(|e| match e {
@@ -548,7 +607,8 @@ fn delete_profile() -> Result<String, DaffyError> {
             },
         })?;
 
-    log_event!("delete_profile by {} — CVDR generated: {}", owner, hex::encode(receipt_id));
+    log_event!("delete_profile by {} — pending CVDR: {} (awaiting finalization)",
+        owner, hex::encode(receipt_id));
 
     Ok(hex::encode(receipt_id))
 }
@@ -589,44 +649,78 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
     arr.copy_from_slice(&receipt_id_bytes);
 
     mktd02::get_receipt(&arr).map(|r| MktdReceiptResponse {
+        protocol_version: r.protocol_version,
         receipt_id: hex::encode(r.receipt_id),
         canister_id: r.canister_id,
         subnet_id: r.subnet_id,
-        commit_mode: r.commit_mode,
         pre_state_hash: hex::encode(r.pre_state_hash),
         post_state_hash: hex::encode(r.post_state_hash),
         tombstone_hash: hex::encode(r.tombstone_hash),
         deletion_event_hash: hex::encode(r.deletion_event_hash),
         certified_commitment: hex::encode(r.certified_commitment),
-        manifest_hash: hex::encode(r.manifest_hash),
         module_hash: hex::encode(r.module_hash),
         timestamp: r.timestamp,
         nonce: r.nonce,
+        bls_certificate: r.bls_certificate,
+        trust_root_key: r.trust_root_key,
     })
+}
+
+/// Phase B: Retrieve the BLS certificate for the pending receipt.
+///
+/// Returns None if no receipt is pending or no certificate available.
+/// Must be called as a QUERY (ic0.data_certificate() is query-only).
+///
+/// The orchestrator passes the returned certificate and the NNS root
+/// key to mktd_finalize_receipt().
+#[ic_cdk::query]
+fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
+    mktd02::get_pending_certificate().map(|pc| MktdPendingCertificateResponse {
+        receipt_id: pc.receipt_id_hex,
+        certified_commitment: pc.certified_commitment.to_vec(),
+        certificate: pc.certificate,
+    })
+}
+
+/// Phase C: Embed BLS certificate and NNS root key in the pending receipt.
+///
+/// CONTROLLER ONLY. The controller guard is inside the MKTd02 library.
+///
+/// Parameters:
+///   receipt_id_hex — hex-encoded receipt ID (from Phase B)
+///   certificate — raw BLS certificate blob (from Phase B)
+///   trust_root_key — NNS root public key (96 bytes for mainnet)
+///
+/// On success, the receipt is fully self-contained for offline V2
+/// verification and the finalization lock is released.
+#[ic_cdk::update]
+fn mktd_finalize_receipt(
+    receipt_id_hex: String,
+    certificate: Vec<u8>,
+    trust_root_key: Vec<u8>,
+) -> Result<String, DaffyError> {
+    let receipt_id = decode_receipt_id(&receipt_id_hex)?;
+
+    mktd02::finalize_receipt(&receipt_id, certificate, trust_root_key)
+        .map_err(|e| DaffyError::CanisterCallFailed {
+            message: format!("Finalization failed: {}", e),
+        })?;
+
+    log_event!("mktd_finalize_receipt: {} finalized", receipt_id_hex);
+
+    Ok(format!("Receipt {} finalized", receipt_id_hex))
+}
+
+/// Returns whether a receipt is pending finalization.
+#[ic_cdk::query]
+fn mktd_is_pending() -> bool {
+    mktd02::is_pending_finalization()
 }
 
 /// Returns the number of stored receipts (should be 0 or 1 for Leaf mode).
 #[ic_cdk::query]
 fn mktd_receipt_count() -> u64 {
     mktd02::receipt_count()
-}
-
-/// Human-readable receipt response with hex-encoded hashes.
-#[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
-pub struct MktdReceiptResponse {
-    pub receipt_id: String,
-    pub canister_id: Principal,
-    pub subnet_id: Principal,
-    pub commit_mode: String,
-    pub pre_state_hash: String,
-    pub post_state_hash: String,
-    pub tombstone_hash: String,
-    pub deletion_event_hash: String,
-    pub certified_commitment: String,
-    pub manifest_hash: String,
-    pub module_hash: String,
-    pub timestamp: u64,
-    pub nonce: u64,
 }
 
 // Export Candid interface
