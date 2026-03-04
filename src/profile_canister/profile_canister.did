@@ -8,21 +8,26 @@ type DaffyError = variant {
   InvalidWord : record { message : text };
   RateLimitExceeded : record { message : text };
 };
+type MktdPendingCertificateResponse = record {
+  certificate : blob;
+  receipt_id : text;
+  certified_commitment : blob;
+};
 type MktdReceiptResponse = record {
-  protocol_version : text;
+  bls_certificate : opt blob;
   receipt_id : text;
   subnet_id : principal;
   canister_id : principal;
-  pre_state_hash : text;
   post_state_hash : text;
-  tombstone_hash : text;
-  deletion_event_hash : text;
-  certified_commitment : text;
-  module_hash : text;
-  timestamp : nat64;
-  nonce : nat64;
-  bls_certificate : opt blob;
   trust_root_key : blob;
+  deletion_event_hash : text;
+  nonce : nat64;
+  timestamp : nat64;
+  module_hash : text;
+  tombstone_hash : text;
+  pre_state_hash : text;
+  protocol_version : text;
+  certified_commitment : text;
 };
 type MktdStateHashResponse = record { certificate : opt blob; hash : blob };
 type MktdTombstoneStatus = record {
@@ -45,17 +50,41 @@ type ProfileInput = record {
 type Result = variant { Ok : text; Err : DaffyError };
 type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
 service : (principal, opt text) -> {
-  // OWNER ONLY — tombstone all profile fields and generate a CVDR.
-  //
-  // This replaces the old delete_profile() with cryptographically
-  // verifiable deletion. The receipt_id is returned as a hex string
-  // for easy reference. Full receipt can be queried via mktd_get_receipt().
+  // OWNER ONLY — Phase A: tombstone all profile fields and generate a CVDR.
+  // 
+  // The receipt_id is returned as a hex string. The receipt is in
+  // PENDING state (bls_certificate = None). To complete the flow:
+  // 1. Call mktd_get_certificate() (query) to capture the BLS cert
+  // 2. Call mktd_finalize_receipt() (update) to embed cert + root key
+  // 
+  // After this call, the finalization lock is held — no upgrades or
+  // state changes are permitted until the receipt is finalized.
   delete_profile : () -> (Result);
   // PUBLIC — any caller can read the display name.
   // Returns Some(name) if active, None if not set or deleted.
   get_display_name : () -> (opt text) query;
   // OWNER ONLY — returns full profile info.
   get_profile : () -> (Result_1) query;
+  // Phase C: Embed BLS certificate and NNS root key in the pending receipt.
+  // 
+  // CONTROLLER ONLY. The controller guard is inside the MKTd02 library.
+  // 
+  // Parameters:
+  // receipt_id_hex — hex-encoded receipt ID (from Phase B)
+  // certificate — raw BLS certificate blob (from Phase B)
+  // trust_root_key — NNS root public key (96 bytes for mainnet)
+  // 
+  // On success, the receipt is fully self-contained for offline V2
+  // verification and the finalization lock is released.
+  mktd_finalize_receipt : (text, blob, blob) -> (Result);
+  // Phase B: Retrieve the BLS certificate for the pending receipt.
+  // 
+  // Returns None if no receipt is pending or no certificate available.
+  // Must be called as a QUERY (ic0.data_certificate() is query-only).
+  // 
+  // The orchestrator passes the returned certificate and the NNS root
+  // key to mktd_finalize_receipt().
+  mktd_get_certificate : () -> (opt MktdPendingCertificateResponse) query;
   // Returns a full deletion receipt by ID (hex-encoded receipt_id).
   // Returns None if the receipt does not exist.
   mktd_get_receipt : (text) -> (opt MktdReceiptResponse) query;
@@ -64,6 +93,8 @@ service : (principal, opt text) -> {
   mktd_get_state_hash : () -> (MktdStateHashResponse) query;
   // Returns the tombstone status of this canister.
   mktd_get_tombstone_status : () -> (MktdTombstoneStatus) query;
+  // Returns whether a receipt is pending finalization.
+  mktd_is_pending : () -> (bool) query;
   // Returns the number of stored receipts (should be 0 or 1 for Leaf mode).
   mktd_receipt_count : () -> (nat64) query;
   // OWNER ONLY — create or update profile fields.

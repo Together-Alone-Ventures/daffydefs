@@ -10,10 +10,6 @@ type DaffyError = variant {
 };
 type Result = variant { Ok; Err : DaffyError };
 type Result_1 = variant { Ok : principal; Err : DaffyError };
-type Result_2 = variant {
-  Ok : vec record { principal; principal };
-  Err : DaffyError;
-};
 service : () -> {
   // Delete the caller's profile canister. Stops it, deletes it,
   // and removes the mapping. No tombstone — resolve() will return
@@ -21,16 +17,9 @@ service : () -> {
   delete_profile_canister : () -> (Result);
   get_cycle_balance : () -> (nat) query;
   get_or_create_profile_canister : () -> (Result_1);
-  // ADMIN ONLY — list all principal → canister_id mappings.
-  // Returns a Vec of (user_principal, canister_id) pairs.
-  list_all_profiles : () -> (Result_2) query;
   // Resolve a principal to its profile canister ID.
   // Returns ProfileNotFound for both never-existed and deleted principals.
   resolve : (principal) -> (Result_1) query;
-  // Remove the mapping for a deleted (tombstoned) profile canister.
-  // The old canister is NOT destroyed — its CVDR remains queryable.
-  // After this, get_or_create_profile_canister() will create a fresh canister.
-  unmap_deleted_profile : () -> (Result);
   // ADMIN ONLY — upgrade a user's profile canister to the latest embedded WASM.
   // This pushes the current factory-embedded profile_canister code to an existing
   // profile canister. Used when the profile canister code has been updated
