@@ -493,10 +493,11 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "mktd02"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#e278ffd0464e30d5205ad15a1ad957560295e6be"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#f735a6547eed3c703367901bb9b4d409f498de2d"
 dependencies = [
  "candid",
  "ciborium",
+ "hex",
  "ic-cdk 0.17.2",
  "ic-stable-structures",
  "serde",
@@ -902,7 +903,7 @@ dependencies = [
 [[package]]
 name = "zombie-core"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#e278ffd0464e30d5205ad15a1ad957560295e6be"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#f735a6547eed3c703367901bb9b4d409f498de2d"
 dependencies = [
  "candid",
  "ciborium",
