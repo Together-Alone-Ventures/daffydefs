@@ -323,4 +323,99 @@ async fn upgrade_profile_canister(user_principal: Principal) -> Result<(), Daffy
     Ok(())
 }
 
+/// ADMIN ONLY — list all principal → canister_id mappings.
+/// Returns a Vec of (user_principal, canister_id) pairs.
+#[ic_cdk::query]
+fn list_all_profiles() -> Result<Vec<(Principal, Principal)>, DaffyError> {
+    require_admin()?;
+    
+    let entries: Vec<(Principal, Principal)> = PROFILE_MAP.with(|pm| {
+        pm.borrow()
+            .iter()
+            .map(|(k, v)| (*k.principal(), *v.principal()))
+            .collect()
+    });
+
+    Ok(entries)
+}
+
+/// Remove the mapping for a deleted (tombstoned) profile canister.
+/// The old canister is NOT destroyed — its CVDR remains queryable.
+/// After this, get_or_create_profile_canister() will create a fresh canister.
+#[ic_cdk::update]
+fn unmap_deleted_profile() -> Result<(), DaffyError> {
+    let caller = require_authenticated()?;
+    let storable_caller = StorablePrincipal::new(caller);
+
+    let _old = PROFILE_MAP
+        .with(|pm| pm.borrow().get(&storable_caller))
+        .ok_or_else(|| DaffyError::ProfileNotFound {
+            message: "No profile canister exists for this principal".into(),
+        })?;
+
+    PROFILE_MAP.with(|pm| {
+        pm.borrow_mut().remove(&storable_caller);
+    });
+
+    log_event!("unmap_deleted_profile: unmapped canister for {}", caller);
+    Ok(())
+}
+
+/// ADMIN ONLY — Finalize a pending CVDR on a profile canister (Phase C proxy).
+///
+/// The factory is the sole controller of profile canisters, so only the
+/// factory can call mktd_finalize_receipt() on them. This endpoint lets
+/// an admin trigger finalization via the factory.
+#[ic_cdk::update]
+async fn finalize_profile_receipt(
+    canister_id: Principal,
+    receipt_id_hex: String,
+    certificate: Vec<u8>,
+    trust_root_key: Vec<u8>,
+) -> Result<String, DaffyError> {
+    let admin = require_admin()?;
+
+    // Verify this canister is one we manage
+    let is_managed = PROFILE_MAP.with(|pm| {
+        pm.borrow().iter().any(|(_, v)| *v.principal() == canister_id)
+    });
+    if !is_managed {
+        return Err(DaffyError::ProfileNotFound {
+            message: format!("Canister {} is not a managed profile canister", canister_id),
+        });
+    }
+
+    let call_result: Result<(Result<String, DaffyError>,), _> = ic_cdk::call(
+        canister_id,
+        "mktd_finalize_receipt",
+        (receipt_id_hex.clone(), certificate, trust_root_key),
+    )
+    .await;
+
+    match call_result {
+        Ok((inner_result,)) => {
+            match &inner_result {
+                Ok(_) => log_event!(
+                    "finalize_profile_receipt: {} finalized by admin {}",
+                    receipt_id_hex, admin
+                ),
+                Err(e) => log_error!(
+                    "finalize_profile_receipt: profile canister returned error: {}",
+                    e
+                ),
+            }
+            inner_result
+        }
+        Err((code, msg)) => {
+            log_error!(
+                "finalize_profile_receipt: inter-canister call failed: {:?} — {}",
+                code, msg
+            );
+            Err(DaffyError::CanisterCallFailed {
+                message: format!("Inter-canister call to {} failed: {:?} — {}", canister_id, code, msg),
+            })
+        }
+    }
+}
+
 ic_cdk::export_candid!();
