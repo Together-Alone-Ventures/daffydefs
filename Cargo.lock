@@ -493,7 +493,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "mktd02"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git#407517b038e1197147975f86506ffcb0d35290e5"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#e278ffd0464e30d5205ad15a1ad957560295e6be"
 dependencies = [
  "candid",
  "ciborium",
@@ -902,7 +902,7 @@ dependencies = [
 [[package]]
 name = "zombie-core"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git#407517b038e1197147975f86506ffcb0d35290e5"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#e278ffd0464e30d5205ad15a1ad957560295e6be"
 dependencies = [
  "candid",
  "ciborium",

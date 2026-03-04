@@ -15,6 +15,6 @@ ic-stable-structures = "0.6"
 shared = { path = "../shared" }
 
 # MKTd02: Cryptographically Verifiable Deletion Receipts
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", package = "mktd02" }
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", package = "zombie-core" }
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", branch = "v0.2.0", package = "mktd02" }
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", branch = "v0.2.0", package = "zombie-core" }
 hex = "0.4"
