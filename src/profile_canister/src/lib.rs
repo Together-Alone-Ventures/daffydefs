@@ -38,7 +38,7 @@ use std::cell::RefCell;
 // MKTd02 imports
 use mktd02::trait_def::{CommitMode, MKTdDataSource};
 use mktd02::MktdConfig;
-use zombie_core::manifest::FieldDescriptor;
+use mktd02::FieldDescriptor;
 use zombie_core::serialisation::encode_pii_state;
 use zombie_core::tombstone::tombstone_constant;
 
@@ -129,7 +129,7 @@ pub struct MktdTombstoneStatus {
 
 /// Human-readable receipt response with hex-encoded hashes.
 ///
-/// v0.2.0: Added protocol_version, bls_certificate, trust_root_key.
+/// v0.2.0: Added protocol_version, bls_certificate, trust_root_key_id.
 ///         Removed commit_mode, manifest_hash.
 #[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
 pub struct MktdReceiptResponse {
@@ -146,7 +146,7 @@ pub struct MktdReceiptResponse {
     pub timestamp: u64,
     pub nonce: u64,
     pub bls_certificate: Option<Vec<u8>>,
-    pub trust_root_key: Vec<u8>,
+    pub trust_root_key_id: String,
 }
 
 /// Phase B response: BLS certificate for pending receipt.
@@ -560,7 +560,7 @@ fn upsert_profile(input: ProfileInput) -> Result<ProfileInfo, DaffyError> {
 /// The receipt_id is returned as a hex string. The receipt is in
 /// PENDING state (bls_certificate = None). To complete the flow:
 ///   1. Call mktd_get_certificate() (query) to capture the BLS cert
-///   2. Call mktd_finalize_receipt() (update) to embed cert + root key
+///   2. Call mktd_finalize_receipt() (update) to embed cert; key ID set automatically
 ///
 /// After this call, the finalization lock is held — no upgrades or
 /// state changes are permitted until the receipt is finalized.
@@ -662,7 +662,7 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
         timestamp: r.timestamp,
         nonce: r.nonce,
         bls_certificate: r.bls_certificate,
-        trust_root_key: r.trust_root_key,
+        trust_root_key_id: r.trust_root_key_id,
     })
 }
 
@@ -672,7 +672,7 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
 /// Must be called as a QUERY (ic0.data_certificate() is query-only).
 ///
 /// The orchestrator passes the returned certificate and the NNS root
-/// key to mktd_finalize_receipt().
+/// The NNS root key ID is set automatically by the library.
 #[ic_cdk::query]
 fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
     mktd02::get_pending_certificate().map(|pc| MktdPendingCertificateResponse {
@@ -689,7 +689,6 @@ fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
 /// Parameters:
 ///   receipt_id_hex — hex-encoded receipt ID (from Phase B)
 ///   certificate — raw BLS certificate blob (from Phase B)
-///   trust_root_key — NNS root public key (96 bytes for mainnet)
 ///
 /// On success, the receipt is fully self-contained for offline V2
 /// verification and the finalization lock is released.
@@ -697,11 +696,10 @@ fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
 fn mktd_finalize_receipt(
     receipt_id_hex: String,
     certificate: Vec<u8>,
-    trust_root_key: Vec<u8>,
 ) -> Result<String, DaffyError> {
     let receipt_id = decode_receipt_id(&receipt_id_hex)?;
 
-    mktd02::finalize_receipt(&receipt_id, certificate, trust_root_key)
+    mktd02::finalize_receipt(&receipt_id, certificate)
         .map_err(|e| DaffyError::CanisterCallFailed {
             message: format!("Finalization failed: {}", e),
         })?;

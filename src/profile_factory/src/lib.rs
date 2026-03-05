@@ -371,7 +371,6 @@ async fn finalize_profile_receipt(
     canister_id: Principal,
     receipt_id_hex: String,
     certificate: Vec<u8>,
-    trust_root_key: Vec<u8>,
 ) -> Result<String, DaffyError> {
     let admin = require_admin()?;
 
@@ -388,7 +387,7 @@ async fn finalize_profile_receipt(
     let call_result: Result<(Result<String, DaffyError>,), _> = ic_cdk::call(
         canister_id,
         "mktd_finalize_receipt",
-        (receipt_id_hex.clone(), certificate, trust_root_key),
+        (receipt_id_hex.clone(), certificate),
     )
     .await;
 
