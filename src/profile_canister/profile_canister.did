@@ -19,7 +19,7 @@ type MktdReceiptResponse = record {
   subnet_id : principal;
   canister_id : principal;
   post_state_hash : text;
-  trust_root_key : blob;
+  trust_root_key_id : text;
   deletion_event_hash : text;
   nonce : nat64;
   timestamp : nat64;
@@ -55,7 +55,7 @@ service : (principal, opt text) -> {
   // The receipt_id is returned as a hex string. The receipt is in
   // PENDING state (bls_certificate = None). To complete the flow:
   // 1. Call mktd_get_certificate() (query) to capture the BLS cert
-  // 2. Call mktd_finalize_receipt() (update) to embed cert + root key
+  // 2. Call mktd_finalize_receipt() (update) to embed cert; key ID set automatically
   // 
   // After this call, the finalization lock is held — no upgrades or
   // state changes are permitted until the receipt is finalized.
@@ -72,18 +72,17 @@ service : (principal, opt text) -> {
   // Parameters:
   // receipt_id_hex — hex-encoded receipt ID (from Phase B)
   // certificate — raw BLS certificate blob (from Phase B)
-  // trust_root_key — NNS root public key (96 bytes for mainnet)
   // 
   // On success, the receipt is fully self-contained for offline V2
   // verification and the finalization lock is released.
-  mktd_finalize_receipt : (text, blob, blob) -> (Result);
+  mktd_finalize_receipt : (text, blob) -> (Result);
   // Phase B: Retrieve the BLS certificate for the pending receipt.
   // 
   // Returns None if no receipt is pending or no certificate available.
   // Must be called as a QUERY (ic0.data_certificate() is query-only).
   // 
   // The orchestrator passes the returned certificate and the NNS root
-  // key to mktd_finalize_receipt().
+  // The NNS root key ID is set automatically by the library.
   mktd_get_certificate : () -> (opt MktdPendingCertificateResponse) query;
   // Returns a full deletion receipt by ID (hex-encoded receipt_id).
   // Returns None if the receipt does not exist.
