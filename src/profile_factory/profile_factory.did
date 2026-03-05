@@ -25,7 +25,7 @@ service : () -> {
   // The factory is the sole controller of profile canisters, so only the
   // factory can call mktd_finalize_receipt() on them. This endpoint lets
   // an admin trigger finalization via the factory.
-  finalize_profile_receipt : (principal, text, blob, blob) -> (Result_1);
+  finalize_profile_receipt : (principal, text, blob) -> (Result_1);
   get_cycle_balance : () -> (nat) query;
   get_or_create_profile_canister : () -> (Result_2);
   // ADMIN ONLY — list all principal → canister_id mappings.

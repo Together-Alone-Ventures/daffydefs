@@ -501,7 +501,7 @@ dependencies = [
  "ic-cdk 0.17.2",
  "ic-stable-structures",
  "serde",
- "zombie-core 0.2.0 (git+https://github.com/Together-Alone-Ventures/zombie-core?rev=11dcd420196e58be6238e5693505e9560062a3b6)",
+ "zombie-core",
 ]
 
 [[package]]
@@ -586,7 +586,7 @@ dependencies = [
  "mktd02",
  "serde",
  "shared",
- "zombie-core 0.2.0 (git+https://github.com/Together-Alone-Ventures/zombie-core.git?tag=zombie-core-v0.2.0)",
+ "zombie-core",
 ]
 
 [[package]]
@@ -898,17 +898,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "zombie-core"
-version = "0.2.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core.git?tag=zombie-core-v0.2.0#11dcd420196e58be6238e5693505e9560062a3b6"
-dependencies = [
- "candid",
- "ciborium",
- "serde",
- "sha2",
 ]
 
 [[package]]
