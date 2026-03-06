@@ -62,6 +62,7 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [cvdrData, setCvdrData] = useState<CvdrData | null>(null);
+  const [deletionReceiptId, setDeletionReceiptId] = useState<string | null>(null);
   const [finalizationStatus, setFinalizationStatus] = useState<FinalizationStatus>("idle");
 
   // Profile state
@@ -127,6 +128,7 @@ function App() {
         receiptId,
         pendingCert.certificate
       );
+      console.info("[delete-flow] finalize_profile_receipt raw result", finalizeResult);
 
       if (!isOk(finalizeResult as any)) {
         const finalizeError = getError(finalizeResult as any);
@@ -137,6 +139,7 @@ function App() {
       }
 
       const refreshedReceipt = await profileActor.mktd_get_receipt(receiptId);
+      console.info("[delete-flow] refreshed mktd_get_receipt raw result", refreshedReceipt);
       if (refreshedReceipt && refreshedReceipt.length > 0 && refreshedReceipt[0]) {
         setCvdrData(mapReceiptToCvdr(refreshedReceipt[0]));
       }
@@ -304,6 +307,9 @@ function App() {
     setProfileActor(null);
     setFactoryActor(null);
     setSelectedChallengeId(null);
+    setCvdrData(null);
+    setDeletionReceiptId(null);
+    setFinalizationStatus("idle");
 
     // Recreate anonymous agent
     try {
@@ -357,27 +363,35 @@ function App() {
     setActionLoading(true);
     setActionError(null);
     setFinalizationStatus("idle");
+    setCvdrData(null);
+    setDeletionReceiptId(null);
 
     try {
       // Call the profile canister's delete_profile (MKTd02 tombstone + receipt)
       const result = await profileActor.delete_profile();
+      console.info("[delete-flow] delete_profile raw result", result);
       if (isOk(result as any)) {
-        // result.Ok is the receipt_id (hex string)
-        const receiptId = (result as any).Ok;
-        void finalizeReceiptInBackground(receiptId);
+        const receiptIdRaw = (result as any).Ok;
+        if (typeof receiptIdRaw !== "string" || receiptIdRaw.length === 0) {
+          setActionError("Delete succeeded but returned an invalid receipt ID");
+          return;
+        }
 
-        // Fetch the full CVDR
+        const receiptId = receiptIdRaw;
+        console.info("[delete-flow] extracted receiptId", receiptId);
+        setDeletionReceiptId(receiptId);
+        setScreen("deletion-receipt");
+
+        // Fetch immediately, but remain on deletion-receipt if delayed.
         const receiptResult = await profileActor.mktd_get_receipt(receiptId);
+        console.info("[delete-flow] initial mktd_get_receipt raw result", receiptResult);
         if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
           setCvdrData(mapReceiptToCvdr(receiptResult[0]));
-          setScreen("deletion-receipt");
         } else {
-          // Receipt created but couldn't fetch it — still show success
-          setActionError(
-            `Profile deleted. Receipt ID: ${receiptId} (could not fetch full receipt)`
-          );
-          setScreen("profile-deleted");
+          setFinalizationStatus("pending");
         }
+
+        void finalizeReceiptInBackground(receiptId);
       } else {
         setActionError(getError(result as any));
       }
@@ -513,12 +527,21 @@ function App() {
           />
         )}
 
-      {screen === "deletion-receipt" && cvdrData && profileCanisterId && (
+      {screen === "deletion-receipt" && profileCanisterId && (
               <>
                 <nav className="top-bar">
                   <span className="username">Account Deleted</span>
                 </nav>
                 <main className="main-content">
+                  {!cvdrData && (
+                    <div className="card">
+                      <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
+                      <p className="muted">
+                        Loading receipt
+                        {deletionReceiptId ? ` (${deletionReceiptId})` : ""}...
+                      </p>
+                    </div>
+                  )}
                   {finalizationStatus === "finalizing" && (
                     <p className="muted">Finalizing...</p>
                   )}
@@ -528,18 +551,21 @@ function App() {
                   {finalizationStatus === "pending" && (
                     <p className="muted">Pending—will retry on next load</p>
                   )}
-                  <DeletionReceipt
-                    receipt={cvdrData}
-                    profileCanisterId={profileCanisterId}
-                    onDone={() => {
-                      setProfileData(null);
-                      setProfileActor(null);
-                      setProfileCanisterId(null);
-                      setCvdrData(null);
-                      setFinalizationStatus("idle");
-                      setScreen("profile-deleted");
-                    }}
-                  />
+                  {cvdrData && (
+                    <DeletionReceipt
+                      receipt={cvdrData}
+                      profileCanisterId={profileCanisterId}
+                      onDone={() => {
+                        setProfileData(null);
+                        setProfileActor(null);
+                        setProfileCanisterId(null);
+                        setCvdrData(null);
+                        setDeletionReceiptId(null);
+                        setFinalizationStatus("idle");
+                        setScreen("profile-deleted");
+                      }}
+                    />
+                  )}
                 </main>
               </>
             )}
