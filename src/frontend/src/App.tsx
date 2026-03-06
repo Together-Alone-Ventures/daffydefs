@@ -47,6 +47,8 @@ interface ProfileData {
   display_name: string;
 }
 
+type FinalizationStatus = "idle" | "finalizing" | "finalized" | "pending";
+
 // ============================================================
 // App Component
 // ============================================================
@@ -60,6 +62,7 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [cvdrData, setCvdrData] = useState<CvdrData | null>(null);
+  const [finalizationStatus, setFinalizationStatus] = useState<FinalizationStatus>("idle");
 
   // Profile state
   const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
@@ -72,6 +75,76 @@ function App() {
 
   // Navigation state
   const [selectedChallengeId, setSelectedChallengeId] = useState<bigint | null>(null);
+
+  const mapReceiptToCvdr = useCallback((r: any): CvdrData => ({
+    protocol_version: r.protocol_version,
+    receipt_id: r.receipt_id,
+    canister_id: r.canister_id.toText(),
+    subnet_id: r.subnet_id.toText(),
+    pre_state_hash: r.pre_state_hash,
+    post_state_hash: r.post_state_hash,
+    tombstone_hash: r.tombstone_hash,
+    deletion_event_hash: r.deletion_event_hash,
+    certified_commitment: r.certified_commitment,
+    module_hash: r.module_hash,
+    timestamp: r.timestamp,
+    nonce: r.nonce,
+    bls_certificate:
+      r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
+    trust_root_key_id: r.trust_root_key_id,
+  }), []);
+
+  const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
+    if (!profileActor || !profileCanisterId || !factoryActor) return;
+    setFinalizationStatus("finalizing");
+    const sleep = (ms: number) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      });
+
+    try {
+      let pendingCert: any = null;
+      for (let retry = 0; retry <= 10; retry++) {
+        const certResult = await profileActor.mktd_get_certificate();
+        const cert = certResult && certResult.length > 0 ? certResult[0] : null;
+        if (cert && cert.receipt_id === receiptId) {
+          pendingCert = cert;
+          break;
+        }
+        if (retry < 10) {
+          const delayMs = Math.min(250 * 2 ** retry, 2000);
+          await sleep(delayMs);
+        }
+      }
+
+      if (!pendingCert) {
+        setFinalizationStatus("pending");
+        return;
+      }
+
+      const finalizeResult = await factoryActor.finalize_profile_receipt(
+        Principal.fromText(profileCanisterId),
+        receiptId,
+        pendingCert.certificate
+      );
+
+      if (!isOk(finalizeResult as any)) {
+        const finalizeError = getError(finalizeResult as any);
+        if (!finalizeError.toLowerCase().includes("already finalized")) {
+          setFinalizationStatus("pending");
+          return;
+        }
+      }
+
+      const refreshedReceipt = await profileActor.mktd_get_receipt(receiptId);
+      if (refreshedReceipt && refreshedReceipt.length > 0 && refreshedReceipt[0]) {
+        setCvdrData(mapReceiptToCvdr(refreshedReceipt[0]));
+      }
+      setFinalizationStatus("finalized");
+    } catch {
+      setFinalizationStatus("pending");
+    }
+  }, [factoryActor, mapReceiptToCvdr, profileActor, profileCanisterId]);
 
   // ----------------------------------------------------------
   // Initialize auth client on mount
@@ -100,6 +173,29 @@ function App() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (profileActor && profileCanisterId) {
+      const recoverPendingFinalization = async () => {
+        try {
+          const isPending = await profileActor.mktd_is_pending();
+          if (!isPending) return;
+
+          const certResult = await profileActor.mktd_get_certificate();
+          const cert = certResult && certResult.length > 0 ? certResult[0] : null;
+          if (cert?.receipt_id) {
+            void finalizeReceiptInBackground(cert.receipt_id);
+          } else {
+            setFinalizationStatus("pending");
+          }
+        } catch {
+          setFinalizationStatus("pending");
+        }
+      };
+
+      void recoverPendingFinalization();
+    }
+  }, [profileActor, profileCanisterId, finalizeReceiptInBackground]);
 
   // ----------------------------------------------------------
   // Post-authentication setup
@@ -256,36 +352,24 @@ function App() {
     }
   };
 
-const handleDeleteProfile = async () => {
+  const handleDeleteProfile = async () => {
     if (!profileActor || !profileCanisterId) return;
     setActionLoading(true);
     setActionError(null);
+    setFinalizationStatus("idle");
+
     try {
       // Call the profile canister's delete_profile (MKTd02 tombstone + receipt)
       const result = await profileActor.delete_profile();
       if (isOk(result as any)) {
         // result.Ok is the receipt_id (hex string)
         const receiptId = (result as any).Ok;
+        void finalizeReceiptInBackground(receiptId);
 
         // Fetch the full CVDR
         const receiptResult = await profileActor.mktd_get_receipt(receiptId);
         if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
-          const r = receiptResult[0];
-          setCvdrData({
-            receipt_id: r.receipt_id,
-            canister_id: r.canister_id.toText(),
-            subnet_id: r.subnet_id.toText(),
-            commit_mode: r.commit_mode,
-            pre_state_hash: r.pre_state_hash,
-            post_state_hash: r.post_state_hash,
-            tombstone_hash: r.tombstone_hash,
-            deletion_event_hash: r.deletion_event_hash,
-            certified_commitment: r.certified_commitment,
-            manifest_hash: r.manifest_hash,
-            module_hash: r.module_hash,
-            timestamp: r.timestamp,
-            nonce: r.nonce,
-          });
+          setCvdrData(mapReceiptToCvdr(receiptResult[0]));
           setScreen("deletion-receipt");
         } else {
           // Receipt created but couldn't fetch it — still show success
@@ -435,6 +519,15 @@ const handleDeleteProfile = async () => {
                   <span className="username">Account Deleted</span>
                 </nav>
                 <main className="main-content">
+                  {finalizationStatus === "finalizing" && (
+                    <p className="muted">Finalizing...</p>
+                  )}
+                  {finalizationStatus === "finalized" && (
+                    <p className="muted">Finalized</p>
+                  )}
+                  {finalizationStatus === "pending" && (
+                    <p className="muted">Pending—will retry on next load</p>
+                  )}
                   <DeletionReceipt
                     receipt={cvdrData}
                     profileCanisterId={profileCanisterId}
@@ -443,6 +536,7 @@ const handleDeleteProfile = async () => {
                       setProfileActor(null);
                       setProfileCanisterId(null);
                       setCvdrData(null);
+                      setFinalizationStatus("idle");
                       setScreen("profile-deleted");
                     }}
                   />
