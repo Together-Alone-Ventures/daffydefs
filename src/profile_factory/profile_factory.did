@@ -24,11 +24,13 @@ service : () -> {
   // and removes the mapping. No tombstone — resolve() will return
   // ProfileNotFound for this principal going forward.
   delete_profile_canister : () -> (Result);
-  // ADMIN ONLY — Finalize a pending CVDR on a profile canister (Phase C proxy).
+  // Finalize a pending CVDR on a profile canister (Phase C proxy).
   // 
-  // The factory is the sole controller of profile canisters, so only the
-  // factory can call mktd_finalize_receipt() on them. This endpoint lets
-  // an admin trigger finalization via the factory.
+  // Any authenticated user can call this endpoint for normal A -> B -> C flow.
+  // The method is intentionally narrow:
+  // - target canister must be a managed profile canister
+  // - target receipt must exist and not already be finalized
+  // - certificate blob must be non-empty and <= 10_000 bytes
   finalize_profile_receipt : (principal, text, blob) -> (Result_1);
   get_cycle_balance : () -> (nat) query;
   get_or_create_profile_canister : () -> (Result_2);

@@ -19,8 +19,9 @@
 //   init:         write v1
 //   post_upgrade: 0 → v1; v1 → ok; else → trap
 
-use candid::Principal;
+use candid::{CandidType, Principal};
 use sha2::{Sha256, Digest};
+use serde::Deserialize;
 use ic_cdk::api::management_canister::main::{
     create_canister, delete_canister, install_code, stop_canister, CanisterIdRecord,
     CanisterInstallMode, CanisterSettings, CreateCanisterArgument, InstallCodeArgument,
@@ -34,6 +35,11 @@ const CYCLES_PER_PROFILE_CANISTER: u128 = 1_000_000_000_000;
 const PROFILE_CANISTER_WASM: &[u8] = include_bytes!("../profile_canister_embedded.wasm");
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
+
+#[derive(CandidType, Deserialize)]
+struct MktdReceiptFinalizationView {
+    bls_certificate: Option<Vec<u8>>,
+}
 
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
@@ -432,18 +438,20 @@ fn unmap_deleted_profile() -> Result<(), DaffyError> {
     Ok(())
 }
 
-/// ADMIN ONLY — Finalize a pending CVDR on a profile canister (Phase C proxy).
+/// Finalize a pending CVDR on a profile canister (Phase C proxy).
 ///
-/// The factory is the sole controller of profile canisters, so only the
-/// factory can call mktd_finalize_receipt() on them. This endpoint lets
-/// an admin trigger finalization via the factory.
+/// Any authenticated user can call this endpoint for normal A -> B -> C flow.
+/// The method is intentionally narrow:
+/// - target canister must be a managed profile canister
+/// - target receipt must exist and not already be finalized
+/// - certificate blob must be non-empty and <= 10_000 bytes
 #[ic_cdk::update]
 async fn finalize_profile_receipt(
     canister_id: Principal,
     receipt_id_hex: String,
     certificate: Vec<u8>,
 ) -> Result<String, DaffyError> {
-    let admin = require_admin()?;
+    let caller = require_authenticated()?;
 
     // Verify this canister is one we manage
     let is_managed = PROFILE_MAP.with(|pm| {
@@ -453,6 +461,50 @@ async fn finalize_profile_receipt(
         return Err(DaffyError::ProfileNotFound {
             message: format!("Canister {} is not a managed profile canister", canister_id),
         });
+    }
+
+    let cert_len = certificate.len();
+    if cert_len == 0 || cert_len > 10_000 {
+        return Err(DaffyError::InvalidInput {
+            message: format!(
+                "InvalidCertificate: certificate length must be 1..=10000 bytes (got {})",
+                cert_len
+            ),
+        });
+    }
+
+    let receipt_lookup: Result<(Option<MktdReceiptFinalizationView>,), _> = ic_cdk::call(
+        canister_id,
+        "mktd_get_receipt",
+        (receipt_id_hex.clone(),),
+    )
+    .await;
+
+    match receipt_lookup {
+        Ok((Some(receipt),)) => {
+            if receipt.bls_certificate.is_some() {
+                return Err(DaffyError::AlreadyExists {
+                    message: format!("AlreadyFinalized: receipt {} is already finalized", receipt_id_hex),
+                });
+            }
+        }
+        Ok((None,)) => {
+            return Err(DaffyError::ProfileNotFound {
+                message: format!("Receipt {} does not exist", receipt_id_hex),
+            });
+        }
+        Err((code, msg)) => {
+            log_error!(
+                "finalize_profile_receipt: receipt precheck failed: {:?} — {}",
+                code, msg
+            );
+            return Err(DaffyError::CanisterCallFailed {
+                message: format!(
+                    "Inter-canister receipt precheck on {} failed: {:?} — {}",
+                    canister_id, code, msg
+                ),
+            });
+        }
     }
 
     let call_result: Result<(Result<String, DaffyError>,), _> = ic_cdk::call(
@@ -466,8 +518,8 @@ async fn finalize_profile_receipt(
         Ok((inner_result,)) => {
             match &inner_result {
                 Ok(_) => log_event!(
-                    "finalize_profile_receipt: {} finalized by admin {}",
-                    receipt_id_hex, admin
+                    "finalize_profile_receipt: {} finalized by caller {}",
+                    receipt_id_hex, caller
                 ),
                 Err(e) => log_error!(
                     "finalize_profile_receipt: profile canister returned error: {}",
