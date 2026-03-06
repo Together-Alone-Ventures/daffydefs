@@ -20,12 +20,14 @@ export interface CvdrData {
 interface DeletionReceiptProps {
   receipt: CvdrData;
   profileCanisterId: string;
+  finalizationStatus?: "idle" | "finalizing" | "finalized" | "pending";
   onDone: () => void;
 }
 
 export default function DeletionReceipt({
   receipt,
   profileCanisterId,
+  finalizationStatus = "idle",
   onDone,
 }: DeletionReceiptProps) {
   const [copied, setCopied] = useState(false);
@@ -87,6 +89,15 @@ export default function DeletionReceipt({
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  const blsStatusText =
+    finalizationStatus === "finalizing"
+      ? "Finalization in progress"
+      : finalizationStatus === "pending"
+        ? "Pending finalization"
+        : receipt.bls_certificate
+          ? `${Array.from(receipt.bls_certificate).length} bytes`
+          : "Not finalized yet";
 
   return (
     <div className="card">
@@ -190,7 +201,7 @@ export default function DeletionReceipt({
         <div className="profile-field">
           <span className="field-label">BLS Certificate</span>
           <span className="field-value mono" style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>
-            {receipt.bls_certificate ? `${Array.from(receipt.bls_certificate).length} bytes` : "Not finalized yet"}
+            {blsStatusText}
           </span>
         </div>
       </div>

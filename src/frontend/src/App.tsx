@@ -540,21 +540,40 @@ function App() {
                         Loading receipt
                         {deletionReceiptId ? ` (${deletionReceiptId})` : ""}...
                       </p>
+                      <div className="profile-field">
+                        <span className="field-label">BLS Certificate</span>
+                        <span className="field-value mono">Loading...</span>
+                      </div>
                     </div>
                   )}
                   {finalizationStatus === "finalizing" && (
-                    <p className="muted">Finalizing...</p>
+                    <div className="card">
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div className="spinner" />
+                        <p style={{ margin: 0, fontWeight: 600 }}>
+                          Finalization in progress — please do not exit or refresh this page.
+                        </p>
+                      </div>
+                    </div>
                   )}
                   {finalizationStatus === "finalized" && (
                     <p className="muted">Finalized</p>
                   )}
                   {finalizationStatus === "pending" && (
-                    <p className="muted">Pending—will retry on next load</p>
+                    <div className="card">
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div className="spinner" />
+                        <p style={{ margin: 0, fontWeight: 600 }}>
+                          Finalization delayed — the app will retry automatically. Please keep this page open if possible.
+                        </p>
+                      </div>
+                    </div>
                   )}
                   {cvdrData && (
                     <DeletionReceipt
                       receipt={cvdrData}
                       profileCanisterId={profileCanisterId}
+                      finalizationStatus={finalizationStatus}
                       onDone={() => {
                         setProfileData(null);
                         setProfileActor(null);
