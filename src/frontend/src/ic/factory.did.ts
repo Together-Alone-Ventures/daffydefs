@@ -1,4 +1,4 @@
-// Auto-generated IDL for profile_factory canister
+// IDL for profile_factory canister — updated for receipt finalization proxy
 // Based on src/profile_factory/profile_factory.did
 
 export const idlFactory = ({ IDL }: { IDL: any }) => {
@@ -13,14 +13,22 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     RateLimitExceeded: IDL.Record({ message: IDL.Text }),
   });
 
-  const Result = IDL.Variant({ Ok: IDL.Null, Err: DaffyError });
-  const Result_1 = IDL.Variant({ Ok: IDL.Principal, Err: DaffyError });
+  const ResultNull = IDL.Variant({ Ok: IDL.Null, Err: DaffyError });
+  const ResultPrincipal = IDL.Variant({ Ok: IDL.Principal, Err: DaffyError });
+  const ResultText = IDL.Variant({ Ok: IDL.Text, Err: DaffyError });
 
   return IDL.Service({
-    delete_profile_canister: IDL.Func([], [Result], []),
+    delete_profile_canister: IDL.Func([], [ResultNull], []),
     get_cycle_balance: IDL.Func([], [IDL.Nat], ["query"]),
-    get_or_create_profile_canister: IDL.Func([], [Result_1], []),
-    resolve: IDL.Func([IDL.Principal], [Result_1], ["query"]),
+    get_or_create_profile_canister: IDL.Func([], [ResultPrincipal], []),
+    resolve: IDL.Func([IDL.Principal], [ResultPrincipal], ["query"]),
     version: IDL.Func([], [IDL.Text], ["query"]),
+
+    // Phase C proxy (controller path)
+    finalize_profile_receipt: IDL.Func(
+      [IDL.Principal, IDL.Text, IDL.Vec(IDL.Nat8)],
+      [ResultText],
+      []
+    ),
   });
 };
