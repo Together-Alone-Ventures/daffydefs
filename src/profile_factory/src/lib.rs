@@ -259,6 +259,77 @@ async fn delete_profile_canister() -> Result<(), DaffyError> {
     Ok(())
 }
 
+/// ADMIN ONLY — remove principal → canister mapping without deleting canister.
+#[ic_cdk::update]
+fn admin_unmap_principal(target: Principal) -> Result<(), DaffyError> {
+    let _admin = require_admin()?;
+
+    let storable_target = StorablePrincipal::new(target);
+
+    PROFILE_MAP
+        .with(|pm| pm.borrow().get(&storable_target))
+        .ok_or_else(|| DaffyError::ProfileNotFound {
+            message: format!("No mapping found for {}", target),
+        })?;
+
+    PROFILE_MAP.with(|pm| {
+        pm.borrow_mut().remove(&storable_target);
+    });
+
+    log_event!("admin_unmap_principal: unmapped principal {}", target);
+
+    Ok(())
+}
+
+/// ADMIN ONLY — stop and delete a mapped profile canister, reclaiming cycles.
+#[ic_cdk::update]
+async fn admin_delete_profile_canister(target: Principal) -> Result<(), DaffyError> {
+    let _admin = require_admin()?;
+
+    let storable_target = StorablePrincipal::new(target);
+    let canister_id = PROFILE_MAP
+        .with(|pm| pm.borrow().get(&storable_target))
+        .ok_or_else(|| DaffyError::ProfileNotFound {
+            message: format!("No mapping found for {}", target),
+        })?;
+
+    let canister_id_principal = *canister_id.principal();
+
+    stop_canister(CanisterIdRecord {
+        canister_id: canister_id_principal,
+    })
+    .await
+    .map_err(|e| {
+        log_error!("stop_canister failed: {:?}", e);
+        DaffyError::CanisterCallFailed {
+            message: format!("Failed to stop profile canister: {:?}", e),
+        }
+    })?;
+
+    delete_canister(CanisterIdRecord {
+        canister_id: canister_id_principal,
+    })
+    .await
+    .map_err(|e| {
+        log_error!("delete_canister failed: {:?}", e);
+        DaffyError::CanisterCallFailed {
+            message: format!("Failed to delete profile canister: {:?}", e),
+        }
+    })?;
+
+    PROFILE_MAP.with(|pm| {
+        pm.borrow_mut().remove(&storable_target);
+    });
+
+    log_event!(
+        "admin_delete_profile_canister: deleted {} for {}",
+        canister_id_principal,
+        target
+    );
+
+    Ok(())
+}
+
 /// Checks that the caller is a controller of this factory canister.
 /// Controllers are set at canister creation/update-settings time.
 fn require_admin() -> Result<Principal, DaffyError> {

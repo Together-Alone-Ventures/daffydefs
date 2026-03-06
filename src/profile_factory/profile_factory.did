@@ -16,6 +16,10 @@ type Result_3 = variant {
   Err : DaffyError;
 };
 service : () -> {
+  // ADMIN ONLY — stop and delete a mapped profile canister, reclaiming cycles.
+  admin_delete_profile_canister : (principal) -> (Result);
+  // ADMIN ONLY — remove principal → canister mapping without deleting canister.
+  admin_unmap_principal : (principal) -> (Result);
   // Delete the caller's profile canister. Stops it, deletes it,
   // and removes the mapping. No tombstone — resolve() will return
   // ProfileNotFound for this principal going forward.
