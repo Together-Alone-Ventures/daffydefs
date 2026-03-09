@@ -50,39 +50,44 @@ type ProfileInput = record {
 type Result = variant { Ok : text; Err : DaffyError };
 type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
 service : (principal, opt text) -> {
-  // OWNER ONLY — Phase A: tombstone all profile fields and generate a CVDR.
+  // PROFILE OWNER ONLY — Phase A: tombstone profile fields and create a pending CVDR.
   // 
-  // The receipt_id is returned as a hex string. The receipt is in
-  // PENDING state (bls_certificate = None). To complete the flow:
-  // 1. Call mktd_get_certificate() (query) to capture the BLS cert
-  // 2. Call mktd_finalize_receipt() (update) to embed cert; key ID set automatically
+  // Returns receipt_id as hex text. The stored receipt remains pending
+  // (bls_certificate = None) until finalization data is attached.
   // 
-  // After this call, the finalization lock is held — no upgrades or
-  // state changes are permitted until the receipt is finalized.
+  // Typical completion path in this app:
+  // 1. Query mktd_get_certificate() (Phase B) to read pending certificate response
+  // 2. Call factory finalize_profile_receipt(...) to complete Phase C
+  // 
+  // After Phase A, the finalization lock prevents state drift until receipt finalization.
   delete_profile : () -> (Result);
   // PUBLIC — any caller can read the display name.
   // Returns Some(name) if active, None if not set or deleted.
   get_display_name : () -> (opt text) query;
   // OWNER ONLY — returns full profile info.
   get_profile : () -> (Result_1) query;
-  // Phase C: Embed BLS certificate and NNS root key in the pending receipt.
+  // Phase C: Attach certificate data to a pending receipt.
   // 
-  // CONTROLLER ONLY. The controller guard is inside the MKTd02 library.
+  // This endpoint is controller-gated at the profile canister level.
+  // In this app's normal flow, users call the factory Phase C proxy, and
+  // the factory performs the controller-authorized call on the profile canister.
   // 
   // Parameters:
-  // receipt_id_hex — hex-encoded receipt ID (from Phase B)
+  // receipt_id_hex — hex-encoded receipt ID (from Phase A/B)
   // certificate — raw BLS certificate blob (from Phase B)
   // 
-  // On success, the receipt is fully self-contained for offline V2
-  // verification and the finalization lock is released.
+  // On success, receipt finalization fields are written and the finalization lock is released.
   mktd_finalize_receipt : (text, blob) -> (Result);
-  // Phase B: Retrieve the BLS certificate for the pending receipt.
+  // Phase B: Return the pending certificate response, if available.
   // 
-  // Returns None if no receipt is pending or no certificate available.
-  // Must be called as a QUERY (ic0.data_certificate() is query-only).
+  // Returns Some(MktdPendingCertificateResponse) only when a pending receipt
+  // and certificate payload are available; otherwise returns None.
+  // Must be called as a QUERY (ic0.data_certificate() is query-only on ICP).
   // 
-  // The orchestrator passes the returned certificate and the NNS root
-  // The NNS root key ID is set automatically by the library.
+  // Response fields:
+  // - receipt_id
+  // - certified_commitment
+  // - certificate
   mktd_get_certificate : () -> (opt MktdPendingCertificateResponse) query;
   // Returns a full deletion receipt by ID (hex-encoded receipt_id).
   // Returns None if the receipt does not exist.

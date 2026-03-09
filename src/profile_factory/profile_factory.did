@@ -24,10 +24,16 @@ service : () -> {
   // and removes the mapping. No tombstone — resolve() will return
   // ProfileNotFound for this principal going forward.
   delete_profile_canister : () -> (Result);
-  // Finalize a pending CVDR on a profile canister (Phase C proxy).
+  // Finalize a pending CVDR on a managed profile canister (Phase C proxy).
   // 
-  // Any authenticated user can call this endpoint for normal A -> B -> C flow.
-  // The method is intentionally narrow:
+  // This endpoint is part of normal user-driven A→B→C completion in this app:
+  // users call the factory, and the factory performs the controller-authorized
+  // call on the profile canister.
+  // 
+  // The A→B→C split is an ICP/platform constraint (certificate availability
+  // on query vs receipt mutation on update), not a DaffyDefs-specific protocol rule.
+  // 
+  // Narrow scope:
   // - target canister must be a managed profile canister
   // - target receipt must exist and not already be finalized
   // - certificate blob must be non-empty and <= 10_000 bytes

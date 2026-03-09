@@ -4,6 +4,20 @@ An ultralight social media dApp on the Internet Computer Protocol (ICP). Users p
 
 Built as a test platform for [MKTd02](https://github.com/Together-Alone-Ventures) integration, deliberately mirroring OpenChat's per-customer canister architecture.
 
+DaffyDefs is a worked example/template integration of MKTd02 in an application context.
+It is not the canonical protocol or verification authority.
+
+## Repository Boundaries
+
+- MKTd02 repo: canonical generic protocol/integration truth
+- CVDR-Verify repo: reference verification layer
+- DaffyDefs repo: worked example/template integration
+
+## Finalization Model (A→B→C)
+
+The three-phase deletion/finalization sequence (A→B→C) reflects ICP platform constraints around certified query certificates and update-call finalization.
+DaffyDefs demonstrates one integration pattern for that constraint (including a narrow Phase C proxy), but does not define the protocol.
+
 ## Architecture
 
 - **Profile Canister** — one per user, stores PII (email, birthdate, gender, display name)

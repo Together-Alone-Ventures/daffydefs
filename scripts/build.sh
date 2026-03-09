@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # ==============================================================
-# DaffyDefs Build Script — Single source of truth for all WASMs
+# DaffyDefs Build Script — app build pipeline for this example repo
 # ==============================================================
 #
-# This script builds all canisters in the correct order, optimises
-# the WASMs, verifies Candid interfaces, and builds the frontend.
+# Builds DaffyDefs canisters/frontend in app-specific order, optimises
+# shipped WASMs, verifies Candid extraction on shipped artifacts, and
+# builds the frontend bundle.
+#
+# This script is DaffyDefs-specific operational tooling.
+# Generic MKTd02 protocol/recovery tooling belongs in the MKTd02 repo.
 #
 # Usage: bash scripts/build.sh
 #
@@ -132,16 +136,15 @@ PROFILE_DID="$PROJECT_ROOT/src/profile_canister/profile_canister.did"
 IDL_OUT="$PROJECT_ROOT/src/frontend/src/declarations/profile_canister"
 mkdir -p "$IDL_OUT"
 
-# Use didc if available, otherwise generate a placeholder
+# Use didc if available, otherwise skip direct bind generation here
 if command -v didc &> /dev/null; then
     didc bind "$PROFILE_DID" --target js > "$IDL_OUT/profile_canister.idl.js"
     echo "  Generated IDL via didc"
 else
-    # dfx generate will handle this for declared canisters, but profile_canister
-    # has deploy:false. For now, we generate a minimal placeholder.
-    # The full implementation in Phase 2 will use dfx generate or didc.
-    echo "  Note: didc not found. Using dfx generate for declared canisters."
-    echo "  Profile canister IDL will be generated when didc is installed or via dfx generate."
+    # dfx generate will handle declared canisters. profile_canister has deploy:false.
+    # If didc is unavailable, skip direct JS bind generation here.
+    echo "  Note: didc not found. Skipping direct profile_canister JS bind generation."
+    echo "  Use didc or your standard dfx/declarations flow when needed."
 fi
 
 # ----------------------------------------------------------

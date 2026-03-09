@@ -16,15 +16,18 @@
 //   upsert_profile()    — owner only
 //   delete_profile()    — owner only (Phase A: generates pending CVDR)
 //
-// MKTd02 integration (v0.2.0):
+// MKTd02 integration (worked example wiring):
 //   ProfileAdapter implements MKTdDataSource
 //   mktd02::init() called in #[init]
 //   mktd02::on_post_upgrade() called in #[post_upgrade]
 //   mktd02::refresh_state_hash() called after every PII write
-//   Three-phase deletion flow:
+//   A→B→C flow mapping:
 //     Phase A: mktd02::execute_deletion() in delete_profile()
 //     Phase B: mktd02::get_pending_certificate() in mktd_get_certificate()
 //     Phase C: mktd02::finalize_receipt() in mktd_finalize_receipt()
+//
+// Note: A→B→C is driven by ICP/platform constraints around certified query
+// certificates and update-call mutation, not by DaffyDefs-specific protocol design.
 
 use candid::{CandidType, Principal};
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
@@ -553,15 +556,16 @@ fn upsert_profile(input: ProfileInput) -> Result<ProfileInfo, DaffyError> {
     Ok(result)
 }
 
-/// OWNER ONLY — Phase A: tombstone all profile fields and generate a CVDR.
+/// PROFILE OWNER ONLY — Phase A: tombstone profile fields and create a pending CVDR.
 ///
-/// The receipt_id is returned as a hex string. The receipt is in
-/// PENDING state (bls_certificate = None). To complete the flow:
-///   1. Call mktd_get_certificate() (query) to capture the BLS cert
-///   2. Call mktd_finalize_receipt() (update) to embed cert; key ID set automatically
+/// Returns receipt_id as hex text. The stored receipt remains pending
+/// (`bls_certificate = None`) until finalization data is attached.
 ///
-/// After this call, the finalization lock is held — no upgrades or
-/// state changes are permitted until the receipt is finalized.
+/// Typical completion path in this app:
+///   1. Query mktd_get_certificate() (Phase B) to read pending certificate response
+///   2. Call factory finalize_profile_receipt(...) to complete Phase C
+///
+/// After Phase A, the finalization lock prevents state drift until receipt finalization.
 #[ic_cdk::update]
 fn delete_profile() -> Result<String, DaffyError> {
     let owner = require_owner()?;
@@ -663,13 +667,16 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
     })
 }
 
-/// Phase B: Retrieve the BLS certificate for the pending receipt.
+/// Phase B: Return the pending certificate response, if available.
 ///
-/// Returns None if no receipt is pending or no certificate available.
-/// Must be called as a QUERY (ic0.data_certificate() is query-only).
+/// Returns `Some(MktdPendingCertificateResponse)` only when a pending receipt
+/// and certificate payload are available; otherwise returns `None`.
+/// Must be called as a QUERY (ic0.data_certificate() is query-only on ICP).
 ///
-/// The orchestrator passes the returned certificate and the NNS root
-/// The NNS root key ID is set automatically by the library.
+/// Response fields are:
+/// - receipt_id
+/// - certified_commitment
+/// - certificate
 #[ic_cdk::query]
 fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
     mktd02::get_pending_certificate().map(|pc| MktdPendingCertificateResponse {
@@ -679,16 +686,17 @@ fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
     })
 }
 
-/// Phase C: Embed BLS certificate and NNS root key in the pending receipt.
+/// Phase C: Attach certificate data to a pending receipt.
 ///
-/// CONTROLLER ONLY. The controller guard is inside the MKTd02 library.
+/// This endpoint is controller-gated at the profile canister level.
+/// In this app's normal flow, users call the factory Phase C proxy, and
+/// the factory performs the controller-authorized call on the profile canister.
 ///
 /// Parameters:
-///   receipt_id_hex — hex-encoded receipt ID (from Phase B)
+///   receipt_id_hex — hex-encoded receipt ID (from Phase A/B)
 ///   certificate — raw BLS certificate blob (from Phase B)
 ///
-/// On success, the receipt is fully self-contained for offline V2
-/// verification and the finalization lock is released.
+/// On success, receipt finalization fields are written and the finalization lock is released.
 #[ic_cdk::update]
 fn mktd_finalize_receipt(
     receipt_id_hex: String,
