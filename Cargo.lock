@@ -493,7 +493,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "mktd02"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?branch=v0.2.0#f843d7639231f423e780048c509acd843767e973"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?tag=mktd02-v0.3.0#90e4234382fc20a2eed6172c09bec5a42d560a3f"
 dependencies = [
  "candid",
  "ciborium",
@@ -501,7 +501,7 @@ dependencies = [
  "ic-cdk 0.17.2",
  "ic-stable-structures",
  "serde",
- "zombie-core",
+ "zombie-core 0.2.0",
 ]
 
 [[package]]
@@ -586,7 +586,7 @@ dependencies = [
  "mktd02",
  "serde",
  "shared",
- "zombie-core",
+ "zombie-core 0.3.0",
 ]
 
 [[package]]
@@ -903,7 +903,18 @@ dependencies = [
 [[package]]
 name = "zombie-core"
 version = "0.2.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core?rev=11dcd420196e58be6238e5693505e9560062a3b6#11dcd420196e58be6238e5693505e9560062a3b6"
+source = "git+https://github.com/Together-Alone-Ventures/zombie-core?rev=a79ef846fb07177b31c86940431bdc0e2e1f8f96#a79ef846fb07177b31c86940431bdc0e2e1f8f96"
+dependencies = [
+ "candid",
+ "ciborium",
+ "serde",
+ "sha2",
+]
+
+[[package]]
+name = "zombie-core"
+version = "0.3.0"
+source = "git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.3.0#76ca607129e4afc9b9508702f891aa59b007786d"
 dependencies = [
  "candid",
  "ciborium",
