@@ -136,7 +136,6 @@ pub struct MktdReceiptResponse {
     pub protocol_version: String,
     pub receipt_id: String,
     pub canister_id: Principal,
-    pub subnet_id: Principal,
     pub pre_state_hash: String,
     pub post_state_hash: String,
     pub tombstone_hash: String,
@@ -144,7 +143,7 @@ pub struct MktdReceiptResponse {
     pub certified_commitment: String,
     pub module_hash: String,
     pub timestamp: u64,
-    pub nonce: u64,
+    pub deletion_seq: u64,
     pub bls_certificate: Option<Vec<u8>>,
     pub trust_root_key_id: String,
 }
@@ -307,7 +306,6 @@ fn mktd_guard_check() -> Result<(), DaffyError> {
 fn mktd_config() -> MktdConfig {
     MktdConfig {
         base_memory_id: 100,
-        subnet_id: Principal::from_text("jtdsg-3h6gi-hs7o5-z2soi-43w3z-soyl3-ajnp3-ekni5-sw553-5kw67-nqe").unwrap(), // Set to real subnet ID for production
     }
 }
 
@@ -652,7 +650,6 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
         protocol_version: r.protocol_version,
         receipt_id: hex::encode(r.receipt_id),
         canister_id: r.canister_id,
-        subnet_id: r.subnet_id,
         pre_state_hash: hex::encode(r.pre_state_hash),
         post_state_hash: hex::encode(r.post_state_hash),
         tombstone_hash: hex::encode(r.tombstone_hash),
@@ -660,7 +657,7 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
         certified_commitment: hex::encode(r.certified_commitment),
         module_hash: hex::encode(r.module_hash),
         timestamp: r.timestamp,
-        nonce: r.nonce,
+        deletion_seq: r.deletion_seq,
         bls_certificate: r.bls_certificate,
         trust_root_key_id: r.trust_root_key_id,
     })
