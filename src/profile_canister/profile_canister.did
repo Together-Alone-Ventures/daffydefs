@@ -16,15 +16,14 @@ type MktdPendingCertificateResponse = record {
 type MktdReceiptResponse = record {
   bls_certificate : opt blob;
   receipt_id : text;
-  subnet_id : principal;
   canister_id : principal;
   post_state_hash : text;
   trust_root_key_id : text;
   deletion_event_hash : text;
-  nonce : nat64;
   timestamp : nat64;
   module_hash : text;
   tombstone_hash : text;
+  deletion_seq : nat64;
   pre_state_hash : text;
   protocol_version : text;
   certified_commitment : text;
@@ -53,7 +52,7 @@ service : (principal, opt text) -> {
   // PROFILE OWNER ONLY — Phase A: tombstone profile fields and create a pending CVDR.
   // 
   // Returns receipt_id as hex text. The stored receipt remains pending
-  // (bls_certificate = None) until finalization data is attached.
+  // (`bls_certificate = None`) until finalization data is attached.
   // 
   // Typical completion path in this app:
   // 1. Query mktd_get_certificate() (Phase B) to read pending certificate response
@@ -80,11 +79,11 @@ service : (principal, opt text) -> {
   mktd_finalize_receipt : (text, blob) -> (Result);
   // Phase B: Return the pending certificate response, if available.
   // 
-  // Returns Some(MktdPendingCertificateResponse) only when a pending receipt
-  // and certificate payload are available; otherwise returns None.
+  // Returns `Some(MktdPendingCertificateResponse)` only when a pending receipt
+  // and certificate payload are available; otherwise returns `None`.
   // Must be called as a QUERY (ic0.data_certificate() is query-only on ICP).
   // 
-  // Response fields:
+  // Response fields are:
   // - receipt_id
   // - certified_commitment
   // - certificate
