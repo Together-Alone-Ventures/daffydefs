@@ -15,9 +15,9 @@ ic-stable-structures = "0.6"
 shared = { path = "../shared" }
 
 # MKTd02: Cryptographically Verifiable Deletion Receipts
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", branch = "v0.2.0", package = "mktd02" }
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/MKTd02.git", tag = "mktd02-v0.3.0", package = "mktd02" }
 
 # zombie-core: pin to the same source form as mktd02 to avoid duplicate crates
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "11dcd420196e58be6238e5693505e9560062a3b6" }
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.3.0" }
 
 hex = "0.4"
