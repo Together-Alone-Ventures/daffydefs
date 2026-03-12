@@ -24,8 +24,8 @@ type MktdReceiptResponse = record {
   module_hash : text;
   tombstone_hash : text;
   deletion_seq : nat64;
-  record_id : vec nat8;
   pre_state_hash : text;
+  record_id : blob;
   protocol_version : text;
   certified_commitment : text;
 };
