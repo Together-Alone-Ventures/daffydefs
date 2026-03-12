@@ -480,9 +480,9 @@ checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "memchr"
@@ -493,7 +493,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "mktd02"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?tag=mktd02-v0.3.0#90e4234382fc20a2eed6172c09bec5a42d560a3f"
+source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?tag=mktd02-v0.3.1#7d9584c2e62161f7a4df7e4bf1ff70bb544fbbe2"
 dependencies = [
  "candid",
  "ciborium",
@@ -501,7 +501,7 @@ dependencies = [
  "ic-cdk 0.17.2",
  "ic-stable-structures",
  "serde",
- "zombie-core 0.2.0",
+ "zombie-core",
 ]
 
 [[package]]
@@ -586,7 +586,7 @@ dependencies = [
  "mktd02",
  "serde",
  "shared",
- "zombie-core 0.3.0",
+ "zombie-core",
 ]
 
 [[package]]
@@ -882,18 +882,18 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a789c6e490b576db9f7e6b6d661bcc9799f7c0ac8352f56ea20193b2681532e5"
+checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f65c489a7071a749c849713807783f70672b28094011623e200cb86dcb835953"
+checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -902,22 +902,12 @@ dependencies = [
 
 [[package]]
 name = "zombie-core"
-version = "0.2.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core?rev=a79ef846fb07177b31c86940431bdc0e2e1f8f96#a79ef846fb07177b31c86940431bdc0e2e1f8f96"
-dependencies = [
- "candid",
- "ciborium",
- "serde",
- "sha2",
-]
-
-[[package]]
-name = "zombie-core"
 version = "0.3.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.3.0#76ca607129e4afc9b9508702f891aa59b007786d"
+source = "git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.3.1#508f2f8bb88f4395293168c6ef25c92a67dee894"
 dependencies = [
  "candid",
  "ciborium",
+ "hex",
  "serde",
  "sha2",
 ]
