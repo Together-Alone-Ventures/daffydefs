@@ -4,7 +4,6 @@ export interface CvdrData {
   protocol_version: string;
   receipt_id: string;
   canister_id: string;
-  subnet_id: string;
   pre_state_hash: string;
   post_state_hash: string;
   tombstone_hash: string;
@@ -12,7 +11,7 @@ export interface CvdrData {
   certified_commitment: string;
   module_hash: string;
   timestamp: bigint;
-  nonce: bigint;
+  deletion_seq: bigint;
   bls_certificate?: Array<number> | Uint8Array | null;
   trust_root_key_id: string;
 }
@@ -41,11 +40,15 @@ export default function DeletionReceipt({
     }
   };
 
+  const bytesToHex = (bytes: Array<number> | Uint8Array): string =>
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
   const receiptJson = {
     protocol_version: receipt.protocol_version,
     receipt_id: receipt.receipt_id,
     canister_id: receipt.canister_id,
-    subnet_id: receipt.subnet_id,
     profile_canister: profileCanisterId,
     pre_state_hash: receipt.pre_state_hash,
     post_state_hash: receipt.post_state_hash,
@@ -55,8 +58,8 @@ export default function DeletionReceipt({
     module_hash: receipt.module_hash,
     timestamp: receipt.timestamp.toString(),
     timestamp_iso: formatTimestamp(receipt.timestamp),
-    nonce: receipt.nonce.toString(),
-    bls_certificate: receipt.bls_certificate ? Array.from(receipt.bls_certificate) : null,
+    deletion_seq: receipt.deletion_seq.toString(),
+    bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
     trust_root_key_id: receipt.trust_root_key_id,
   };
 
@@ -131,13 +134,6 @@ export default function DeletionReceipt({
         </div>
 
         <div className="profile-field">
-          <span className="field-label">Subnet</span>
-          <span className="field-value mono" style={{ fontSize: "0.8rem" }}>
-            {receipt.subnet_id}
-          </span>
-        </div>
-
-        <div className="profile-field">
           <span className="field-label">Protocol Version</span>
           <span className="field-value">{receipt.protocol_version}</span>
         </div>
@@ -187,8 +183,8 @@ export default function DeletionReceipt({
         </div>
 
         <div className="profile-field">
-          <span className="field-label">Nonce</span>
-          <span className="field-value mono">{receipt.nonce.toString()}</span>
+          <span className="field-label">Deletion Seq</span>
+          <span className="field-value mono">{receipt.deletion_seq.toString()}</span>
         </div>
 
         <div className="profile-field">

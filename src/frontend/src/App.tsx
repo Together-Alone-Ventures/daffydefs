@@ -81,7 +81,6 @@ function App() {
     protocol_version: r.protocol_version,
     receipt_id: r.receipt_id,
     canister_id: r.canister_id.toText(),
-    subnet_id: r.subnet_id.toText(),
     pre_state_hash: r.pre_state_hash,
     post_state_hash: r.post_state_hash,
     tombstone_hash: r.tombstone_hash,
@@ -89,7 +88,7 @@ function App() {
     certified_commitment: r.certified_commitment,
     module_hash: r.module_hash,
     timestamp: r.timestamp,
-    nonce: r.nonce,
+    deletion_seq: r.deletion_seq,
     bls_certificate:
       r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
     trust_root_key_id: r.trust_root_key_id,
