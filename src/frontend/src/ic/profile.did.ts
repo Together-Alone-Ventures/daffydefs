@@ -45,7 +45,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     protocol_version: IDL.Text,
     receipt_id: IDL.Text,
     canister_id: IDL.Principal,
-    record_id: IDL.Opt(IDL.Vec(IDL.Nat8)),
+    record_id: IDL.Vec(IDL.Nat8),
     pre_state_hash: IDL.Text,
     post_state_hash: IDL.Text,
     tombstone_hash: IDL.Text,
