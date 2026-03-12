@@ -80,7 +80,7 @@ function App() {
   const mapReceiptToCvdr = useCallback((r: any): CvdrData => {
     const bytesToHex = (bytes: Array<number> | Uint8Array): string =>
       Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const recordIdRaw = r.record_id && r.record_id.length > 0 ? r.record_id[0] : null;
+    const recordIdRaw = r.record_id && r.record_id.length > 0 ? r.record_id : null;
     return {
       protocol_version: r.protocol_version,
       receipt_id: r.receipt_id,
