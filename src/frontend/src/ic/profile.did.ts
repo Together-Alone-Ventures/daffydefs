@@ -45,7 +45,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     protocol_version: IDL.Text,
     receipt_id: IDL.Text,
     canister_id: IDL.Principal,
-    subnet_id: IDL.Principal,
+    record_id: IDL.Opt(IDL.Vec(IDL.Nat8)),
     pre_state_hash: IDL.Text,
     post_state_hash: IDL.Text,
     tombstone_hash: IDL.Text,
@@ -53,7 +53,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     certified_commitment: IDL.Text,
     module_hash: IDL.Text,
     timestamp: IDL.Nat64,
-    nonce: IDL.Nat64,
+    deletion_seq: IDL.Nat64,
     bls_certificate: IDL.Opt(IDL.Vec(IDL.Nat8)),
     trust_root_key_id: IDL.Text,
   });

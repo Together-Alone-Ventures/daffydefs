@@ -77,22 +77,28 @@ function App() {
   // Navigation state
   const [selectedChallengeId, setSelectedChallengeId] = useState<bigint | null>(null);
 
-  const mapReceiptToCvdr = useCallback((r: any): CvdrData => ({
-    protocol_version: r.protocol_version,
-    receipt_id: r.receipt_id,
-    canister_id: r.canister_id.toText(),
-    pre_state_hash: r.pre_state_hash,
-    post_state_hash: r.post_state_hash,
-    tombstone_hash: r.tombstone_hash,
-    deletion_event_hash: r.deletion_event_hash,
-    certified_commitment: r.certified_commitment,
-    module_hash: r.module_hash,
-    timestamp: r.timestamp,
-    deletion_seq: r.deletion_seq,
-    bls_certificate:
-      r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
-    trust_root_key_id: r.trust_root_key_id,
-  }), []);
+  const mapReceiptToCvdr = useCallback((r: any): CvdrData => {
+    const bytesToHex = (bytes: Array<number> | Uint8Array): string =>
+      Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const recordIdRaw = r.record_id && r.record_id.length > 0 ? r.record_id[0] : null;
+    return {
+      protocol_version: r.protocol_version,
+      receipt_id: r.receipt_id,
+      canister_id: r.canister_id.toText(),
+      record_id: recordIdRaw ? bytesToHex(recordIdRaw) : "",
+      pre_state_hash: r.pre_state_hash,
+      post_state_hash: r.post_state_hash,
+      tombstone_hash: r.tombstone_hash,
+      deletion_event_hash: r.deletion_event_hash,
+      certified_commitment: r.certified_commitment,
+      module_hash: r.module_hash,
+      timestamp: r.timestamp,
+      deletion_seq: r.deletion_seq,
+      bls_certificate:
+        r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
+      trust_root_key_id: r.trust_root_key_id,
+    };
+  }, []);
 
   const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
     if (!profileActor || !profileCanisterId || !factoryActor) return;

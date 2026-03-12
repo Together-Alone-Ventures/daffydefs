@@ -4,6 +4,7 @@ export interface CvdrData {
   protocol_version: string;
   receipt_id: string;
   canister_id: string;
+  record_id?: string | null;
   pre_state_hash: string;
   post_state_hash: string;
   tombstone_hash: string;
@@ -49,7 +50,7 @@ export default function DeletionReceipt({
     protocol_version: receipt.protocol_version,
     receipt_id: receipt.receipt_id,
     canister_id: receipt.canister_id,
-    profile_canister: profileCanisterId,
+    record_id: receipt.record_id ?? "",
     pre_state_hash: receipt.pre_state_hash,
     post_state_hash: receipt.post_state_hash,
     tombstone_hash: receipt.tombstone_hash,
@@ -57,10 +58,10 @@ export default function DeletionReceipt({
     certified_commitment: receipt.certified_commitment,
     module_hash: receipt.module_hash,
     timestamp: receipt.timestamp.toString(),
-    timestamp_iso: formatTimestamp(receipt.timestamp),
     deletion_seq: receipt.deletion_seq.toString(),
     bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
     trust_root_key_id: receipt.trust_root_key_id,
+    timestamp_iso: formatTimestamp(receipt.timestamp),
   };
 
   const handleDownload = () => {
