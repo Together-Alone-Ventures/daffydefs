@@ -1,4 +1,4 @@
-// IDL for profile_canister — updated for MKTd02 v0.2.0 seamless finalization (A/B/C)
+// IDL for profile_canister — updated for MKTd02 v0.3.0 (mktd02-v3)
 export const idlFactory = ({ IDL }: { IDL: any }) => {
   const DaffyError = IDL.Variant({
     ProfileDeleted: IDL.Record({ message: IDL.Text }),
