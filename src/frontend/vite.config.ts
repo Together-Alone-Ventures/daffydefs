@@ -15,7 +15,7 @@ export default defineConfig({
       CANISTER_ID_BULLETIN_BOARD: "",
       CANISTER_ID_PROFILE_FACTORY: "",
       CANISTER_ID_INTERNET_IDENTITY: "",
-      DFX_NETWORK: "local",
+      DFX_NETWORK: "",
     }),
   ],
   build: {
