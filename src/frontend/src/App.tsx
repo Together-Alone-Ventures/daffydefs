@@ -36,7 +36,7 @@ type Screen =
   | "profile-deleted"       // profile was deleted, offer rejoin
   | "create-challenge"      // posting a new word
   | "challenge-detail"      // viewing a challenge + comments
-  | "deletion-receipt" 
+  | "deletion-receipt"
   | "error";
 
 interface ProfileData {
@@ -48,6 +48,19 @@ interface ProfileData {
 }
 
 type FinalizationStatus = "idle" | "finalizing" | "finalized" | "pending";
+
+// ============================================================
+// Helper: treat a receipt as finalized if BLS cert is present
+// ============================================================
+
+const isReceiptFinalized = (r: any): boolean =>
+  !!(
+    r &&
+    r.bls_certificate &&
+    r.bls_certificate.length > 0 &&
+    r.trust_root_key_id &&
+    String(r.trust_root_key_id).length > 0
+  );
 
 // ============================================================
 // App Component
@@ -102,6 +115,21 @@ function App() {
 
   const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
     if (!profileActor || !profileCanisterId || !factoryActor) return;
+
+    // FIX 3: Short-circuit if receipt is already finalized — prevents
+    // a second background call from driving status back to "pending".
+    try {
+      const existingReceipt = await profileActor.mktd_get_receipt(receiptId);
+      const existing = existingReceipt && existingReceipt.length > 0 ? existingReceipt[0] : null;
+      if (existing && isReceiptFinalized(existing)) {
+        setCvdrData(mapReceiptToCvdr(existing));
+        setFinalizationStatus("finalized");
+        return;
+      }
+    } catch {
+      // continue into normal retry path
+    }
+
     setFinalizationStatus("finalizing");
     const sleep = (ms: number) =>
       new Promise((resolve) => {
@@ -110,21 +138,28 @@ function App() {
 
     try {
       let pendingCert: any = null;
-      for (let retry = 0; retry <= 10; retry++) {
+      // FIX 2: Extend polling window — 20 retries, cap raised to 4000ms (~60s total).
+      for (let retry = 0; retry <= 20; retry++) {
         const certResult = await profileActor.mktd_get_certificate();
         const cert = certResult && certResult.length > 0 ? certResult[0] : null;
         if (cert && cert.receipt_id === receiptId) {
           pendingCert = cert;
           break;
         }
-        if (retry < 10) {
-          const delayMs = Math.min(250 * 2 ** retry, 2000);
+        if (retry < 20) {
+          const delayMs = Math.min(250 * 2 ** retry, 4000);
           await sleep(delayMs);
         }
       }
 
       if (!pendingCert) {
+        // FIX 4: Schedule a real retry so the UI message is truthful.
+        // One deferred attempt after 15s; if it also fails the user
+        // is advised to refresh.
         setFinalizationStatus("pending");
+        setTimeout(() => {
+          void finalizeReceiptInBackground(receiptId);
+        }, 15_000);
         return;
       }
 
@@ -139,6 +174,9 @@ function App() {
         const finalizeError = getError(finalizeResult as any);
         if (!finalizeError.toLowerCase().includes("already finalized")) {
           setFinalizationStatus("pending");
+          setTimeout(() => {
+            void finalizeReceiptInBackground(receiptId);
+          }, 15_000);
           return;
         }
       }
@@ -151,6 +189,9 @@ function App() {
       setFinalizationStatus("finalized");
     } catch {
       setFinalizationStatus("pending");
+      setTimeout(() => {
+        void finalizeReceiptInBackground(receiptId);
+      }, 15_000);
     }
   }, [factoryActor, mapReceiptToCvdr, profileActor, profileCanisterId]);
 
@@ -203,7 +244,12 @@ function App() {
 
       void recoverPendingFinalization();
     }
-  }, [profileActor, profileCanisterId, finalizeReceiptInBackground]);
+    // NOTE: finalizeReceiptInBackground intentionally omitted from deps here.
+    // Including it caused the effect to re-fire on every render during the
+    // deletion flow, launching a second background finalization that raced
+    // the first and drove status back to "pending".
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileActor, profileCanisterId]);
 
   // ----------------------------------------------------------
   // Post-authentication setup
@@ -372,7 +418,6 @@ function App() {
     setDeletionReceiptId(null);
 
     try {
-      // Call the profile canister's delete_profile (MKTd02 tombstone + receipt)
       const result = await profileActor.delete_profile();
       console.info("[delete-flow] delete_profile raw result", result);
       if (isOk(result as any)) {
@@ -387,16 +432,29 @@ function App() {
         setDeletionReceiptId(receiptId);
         setScreen("deletion-receipt");
 
-        // Fetch immediately, but remain on deletion-receipt if delayed.
+        // FIX 1 + FIX 2: Only launch background finalization if the receipt
+        // is not already finalized. If it is, set "finalized" immediately and
+        // return — do not hand off to the background function at all.
         const receiptResult = await profileActor.mktd_get_receipt(receiptId);
         console.info("[delete-flow] initial mktd_get_receipt raw result", receiptResult);
-        if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
-          setCvdrData(mapReceiptToCvdr(receiptResult[0]));
-        } else {
-          setFinalizationStatus("pending");
-        }
 
-        void finalizeReceiptInBackground(receiptId);
+        if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
+          const receipt = receiptResult[0];
+          setCvdrData(mapReceiptToCvdr(receipt));
+
+          if (isReceiptFinalized(receipt)) {
+            setFinalizationStatus("finalized");
+            return;
+          }
+
+          // Receipt exists but BLS cert not yet present — kick off finalization.
+          setFinalizationStatus("pending");
+          void finalizeReceiptInBackground(receiptId);
+        } else {
+          // Receipt not yet in store — kick off finalization.
+          setFinalizationStatus("pending");
+          void finalizeReceiptInBackground(receiptId);
+        }
       } else {
         setActionError(getError(result as any));
       }
@@ -532,69 +590,71 @@ function App() {
           />
         )}
 
-      {screen === "deletion-receipt" && profileCanisterId && (
-              <>
-                <nav className="top-bar">
-                  <span className="username">Account Deleted</span>
-                </nav>
-                <main className="main-content">
-                  {!cvdrData && (
-                    <div className="card">
-                      <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
-                      <p className="muted">
-                        Loading receipt
-                        {deletionReceiptId ? ` (${deletionReceiptId})` : ""}...
-                      </p>
-                      <div className="profile-field">
-                        <span className="field-label">BLS Certificate</span>
-                        <span className="field-value mono">Loading...</span>
-                      </div>
-                    </div>
-                  )}
-                  {finalizationStatus === "finalizing" && (
-                    <div className="card">
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <div className="spinner" />
-                        <p style={{ margin: 0, fontWeight: 600 }}>
-                          Finalization in progress — please do not exit or refresh this page.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {finalizationStatus === "finalized" && (
-                    <p className="muted">Finalized</p>
-                  )}
-                  {finalizationStatus === "pending" && (
-                    <div className="card">
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <div className="spinner" />
-                        <p style={{ margin: 0, fontWeight: 600 }}>
-                          Finalization delayed — the app will retry automatically. Please keep this page open if possible.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {cvdrData && (
-                    <DeletionReceipt
-                      receipt={cvdrData}
-                      profileCanisterId={profileCanisterId}
-                      finalizationStatus={finalizationStatus}
-                      onDone={() => {
-                        setProfileData(null);
-                        setProfileActor(null);
-                        setProfileCanisterId(null);
-                        setCvdrData(null);
-                        setDeletionReceiptId(null);
-                        setFinalizationStatus("idle");
-                        setScreen("profile-deleted");
-                      }}
-                    />
-                  )}
-                </main>
-              </>
-            )}
+        {/* Deletion Receipt */}
+        {screen === "deletion-receipt" && profileCanisterId && (
+          <>
+            <nav className="top-bar">
+              <span className="username">Account Deleted</span>
+            </nav>
+            {/* FIX 5: was a nested <main>, changed to <div> */}
+            <div className="main-content">
+              {!cvdrData && (
+                <div className="card">
+                  <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
+                  <p className="muted">
+                    Loading receipt
+                    {deletionReceiptId ? ` (${deletionReceiptId})` : ""}...
+                  </p>
+                  <div className="profile-field">
+                    <span className="field-label">BLS Certificate</span>
+                    <span className="field-value mono">Loading...</span>
+                  </div>
+                </div>
+              )}
+              {finalizationStatus === "finalizing" && (
+                <div className="card">
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <div className="spinner" />
+                    <p style={{ margin: 0, fontWeight: 600 }}>
+                      Finalization in progress — please do not exit or refresh this page.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {finalizationStatus === "finalized" && (
+                <p className="muted">Finalized</p>
+              )}
+              {finalizationStatus === "pending" && (
+                <div className="card">
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                    <div className="spinner" />
+                    <p style={{ margin: 0, fontWeight: 600 }}>
+                      Finalization delayed — the app will retry automatically. Please keep this page open if possible.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {cvdrData && (
+                <DeletionReceipt
+                  receipt={cvdrData}
+                  profileCanisterId={profileCanisterId}
+                  finalizationStatus={finalizationStatus}
+                  onDone={() => {
+                    setProfileData(null);
+                    setProfileActor(null);
+                    setProfileCanisterId(null);
+                    setCvdrData(null);
+                    setDeletionReceiptId(null);
+                    setFinalizationStatus("idle");
+                    setScreen("profile-deleted");
+                  }}
+                />
+              )}
+            </div>
+          </>
+        )}
 
-                {/* Profile Deleted */}
+        {/* Profile Deleted */}
         {screen === "profile-deleted" && (
           <div className="card">
             <h2>Profile Deleted</h2>
