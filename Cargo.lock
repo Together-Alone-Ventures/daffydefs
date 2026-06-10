@@ -493,7 +493,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 [[package]]
 name = "mktd02"
 version = "0.1.0"
-source = "git+https://github.com/Together-Alone-Ventures/MKTd02.git?tag=mktd02-v0.3.1#7d9584c2e62161f7a4df7e4bf1ff70bb544fbbe2"
+source = "git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?tag=mktd02-v0.3.1#7d9584c2e62161f7a4df7e4bf1ff70bb544fbbe2"
 dependencies = [
  "candid",
  "ciborium",
