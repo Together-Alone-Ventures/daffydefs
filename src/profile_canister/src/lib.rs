@@ -91,6 +91,13 @@ impl Storable for StoredProfile {
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
         candid::decode_one(&bytes).expect("Failed to decode profile")
     }
+    // is-0.7 added `into_bytes` as a required trait method. Delegating to
+    // `to_bytes().into_owned()` keeps the bytes written to stable memory
+    // byte-identical to the is-0.6 Candid encoding — existing mainnet
+    // StoredProfile data is read unchanged on upgrade.
+    fn into_bytes(self) -> Vec<u8> {
+        self.to_bytes().into_owned()
+    }
     const BOUND: Bound = Bound::Bounded {
         max_size: 1024,
         is_fixed_size: false,
@@ -170,18 +177,21 @@ thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
         RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
 
+    // is-0.7: `StableCell::init` returns `Self` (was `Result`); `.expect(...)`
+    // dropped. MemoryId 0/1 unchanged; SCL on-disk format identical to is-0.6,
+    // so existing cell data is read on upgrade.
     static SCHEMA_VERSION: RefCell<StableCell<u64, Memory>> = RefCell::new(
         StableCell::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(0))),
             0u64,
-        ).expect("Failed to init schema version cell")
+        )
     );
 
     static PROFILE: RefCell<StableCell<StoredProfile, Memory>> = RefCell::new(
         StableCell::init(
             MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))),
             StoredProfile::default(),
-        ).expect("Failed to init profile cell")
+        )
     );
 }
 
@@ -266,9 +276,8 @@ impl MKTdDataSource for ProfileAdapter {
                 gender: tc_str.clone(),
                 display_name: tc_str.clone(),
             };
-            p.borrow_mut()
-                .set(tombstoned)
-                .expect("Failed to write tombstoned profile");
+            // is-0.7: `set` returns the old value (was `Result`); `.expect` dropped.
+            p.borrow_mut().set(tombstoned);
         });
     }
 
@@ -363,23 +372,19 @@ fn decode_receipt_id(hex_str: &str) -> Result<[u8; 32], DaffyError> {
 fn init(owner: Principal, module_hash_hex: Option<String>) {
     // Write schema version
     SCHEMA_VERSION.with(|v| {
-        v.borrow_mut()
-            .set(SCHEMA_VERSION_V1)
-            .expect("Failed to write schema version")
+        v.borrow_mut().set(SCHEMA_VERSION_V1);
     });
 
     // Store owner with empty profile (NotSet state)
     PROFILE.with(|p| {
-        p.borrow_mut()
-            .set(StoredProfile {
-                owner,
-                state: ProfileState::NotSet,
-                email: String::new(),
-                birthdate: String::new(),
-                gender: String::new(),
-                display_name: String::new(),
-            })
-            .expect("Failed to write initial profile")
+        p.borrow_mut().set(StoredProfile {
+            owner,
+            state: ProfileState::NotSet,
+            email: String::new(),
+            birthdate: String::new(),
+            gender: String::new(),
+            display_name: String::new(),
+        });
     });
 
 
@@ -404,9 +409,7 @@ fn post_upgrade(module_hash_hex: Option<String>) {
     match version {
         0 => {
             SCHEMA_VERSION.with(|v| {
-                v.borrow_mut()
-                    .set(SCHEMA_VERSION_V1)
-                    .expect("Failed to write schema version on upgrade from 0")
+                v.borrow_mut().set(SCHEMA_VERSION_V1);
             });
             log_event!("post_upgrade: schema version 0 → v1");
         }
@@ -453,7 +456,7 @@ fn validate_display_name(name: &str) -> Result<(), DaffyError> {
 }
 
 fn require_owner() -> Result<Principal, DaffyError> {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     let owner = PROFILE.with(|p| p.borrow().get().owner);
     if caller != owner {
         return Err(DaffyError::NotAuthorized {
@@ -536,9 +539,7 @@ fn upsert_profile(input: ProfileInput) -> Result<ProfileInfo, DaffyError> {
             display_name: input.display_name,
         };
 
-        p.borrow_mut()
-            .set(updated.clone())
-            .expect("Failed to write profile");
+        p.borrow_mut().set(updated.clone());
 
         log_event!("upsert_profile by {}", owner);
 

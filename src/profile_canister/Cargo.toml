@@ -7,15 +7,21 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-ic-cdk = "0.17"
-ic-cdk-timers = "0.9"
+# ic-cdk 0.17→0.18 forced workspace-wide (executor `links` collision).
+ic-cdk = "0.18"
+# ic-cdk-timers removed: unused dependency forced into play by the executor collision.
 candid = "0.10"
 serde = { version = "1", features = ["derive"] }
-ic-stable-structures = "0.6"
+# is-0.6→0.7 forced HERE ONLY — to interoperate with mktd02 v0.4.1 (is-0.7).
+# StoredProfile encoding stays byte-identical (Candid; Bound unchanged; is-0.7
+# Cell format == is-0.6 SCL format → existing data reads on upgrade).
+ic-stable-structures = "0.7"
 shared = { path = "../shared" }
 
-# MKTd02: Cryptographically Verifiable Deletion Receipts
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", tag = "mktd02-v0.4.0", package = "mktd02" }
+# MKTd02: Cryptographically Verifiable Deletion Receipts (v0.4.1 re-pin: ic-cdk
+# 0.18 / is-0.7). NOTE: tag mktd02-v0.4.1 must be created by engine R1 first;
+# build-verified here against the local engine working tree (see deliverable).
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", tag = "mktd02-v0.4.1", package = "mktd02" }
 
 # zombie-core: pin to the same source form as mktd02 to avoid duplicate crates
 zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.3.1" }

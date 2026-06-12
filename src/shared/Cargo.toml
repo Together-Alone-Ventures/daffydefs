@@ -9,5 +9,9 @@ crate-type = ["lib"]
 [dependencies]
 candid = "0.10"
 serde = { version = "1", features = ["derive"] }
+# is-0.6 retained (no `links`; StorablePrincipal encoding must stay byte-stable
+# for live mainnet data; not used by profile_canister's is-0.7 structures).
 ic-stable-structures = "0.6"
-ic-cdk = "0.16"
+# ic-cdk 0.16→0.18 forced workspace-wide by the ic-cdk-executor `links` collision
+# (engine pulls executor 1.x; 0.16 pulls 0.1.0 — cannot coexist in one resolve).
+ic-cdk = "0.18"

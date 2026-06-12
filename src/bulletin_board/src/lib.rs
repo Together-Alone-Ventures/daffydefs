@@ -440,7 +440,7 @@ fn post_upgrade() {
 // ============================================================
 
 fn require_authenticated() -> Result<Principal, DaffyError> {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     if caller == Principal::anonymous() {
         return Err(DaffyError::NotAuthorized {
             message: "Anonymous callers are not allowed".into(),
@@ -552,7 +552,7 @@ fn build_comment_view(comment: &StoredComment, caller: Principal) -> CommentView
 /// cursor = the last seen order_key from a previous page.
 #[ic_cdk::query]
 fn list_challenges(cursor: Option<u64>, limit: Option<u32>) -> ChallengesPage {
-    let caller = ic_cdk::caller(); // may be anonymous for unauthenticated browsing
+    let caller = ic_cdk::api::msg_caller(); // may be anonymous for unauthenticated browsing
     let page_size = limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE) as usize;
 
     CHALLENGES.with(|ch| {
@@ -603,7 +603,7 @@ fn list_challenges(cursor: Option<u64>, limit: Option<u32>) -> ChallengesPage {
 /// Get a single challenge by ID, with its comments.
 #[ic_cdk::query]
 fn get_challenge(id: u64) -> Result<ChallengeDetail, DaffyError> {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     let order_key = u64::MAX - id;
 
     let challenge = CHALLENGES.with(|ch| ch.borrow().get(&order_key)).ok_or_else(|| {
@@ -646,7 +646,7 @@ fn list_comments(
     cursor: Option<u64>,
     limit: Option<u32>,
 ) -> CommentsPage {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     let page_size = limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE) as usize;
 
     COMMENT_INDEX.with(|ci| {

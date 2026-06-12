@@ -93,7 +93,7 @@ fn post_upgrade() {
 }
 
 fn require_authenticated() -> Result<Principal, DaffyError> {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     if caller == Principal::anonymous() {
         return Err(DaffyError::NotAuthorized {
             message: "Anonymous callers are not allowed".into(),
@@ -156,7 +156,7 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
     let create_result = create_canister(
         CreateCanisterArgument {
             settings: Some(CanisterSettings {
-                controllers: Some(vec![ic_cdk::id()]),
+                controllers: Some(vec![ic_cdk::api::canister_self()]),
                 compute_allocation: None,
                 memory_allocation: None,
                 freezing_threshold: None,
@@ -339,7 +339,7 @@ async fn admin_delete_profile_canister(target: Principal) -> Result<(), DaffyErr
 /// Checks that the caller is a controller of this factory canister.
 /// Controllers are set at canister creation/update-settings time.
 fn require_admin() -> Result<Principal, DaffyError> {
-    let caller = ic_cdk::caller();
+    let caller = ic_cdk::api::msg_caller();
     if !ic_cdk::api::is_controller(&caller) {
         return Err(DaffyError::NotAuthorized {
             message: "Only factory controllers can perform this action".into(),
