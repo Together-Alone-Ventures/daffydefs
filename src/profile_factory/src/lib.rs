@@ -23,8 +23,9 @@ use candid::{CandidType, Principal};
 use sha2::{Sha256, Digest};
 use serde::Deserialize;
 use ic_cdk::api::management_canister::main::{
-    create_canister, delete_canister, install_code, stop_canister, CanisterIdRecord,
-    CanisterInstallMode, CanisterSettings, CreateCanisterArgument, InstallCodeArgument,
+    canister_status, create_canister, delete_canister, install_code, stop_canister,
+    CanisterIdRecord, CanisterInstallMode, CanisterSettings, CreateCanisterArgument,
+    InstallCodeArgument,
 };
 use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
 use ic_stable_structures::{DefaultMemoryImpl, StableBTreeMap, StableCell};
@@ -33,6 +34,59 @@ use std::cell::RefCell;
 
 const CYCLES_PER_PROFILE_CANISTER: u128 = 1_000_000_000_000;
 const PROFILE_CANISTER_WASM: &[u8] = include_bytes!("../profile_canister_embedded.wasm");
+
+/// Per-certificate blob ceiling for the v4 two-certificate finalize. Mainnet
+/// read_state / BLS certificates observed at ~2 KB each; 4096 gives ~2× headroom
+/// per blob. Applied independently to phase_b_certificate and
+/// module_hash_certificate (each must also be non-empty). The two-blob total
+/// stays well under the prior single 10 KB cap and the engine's 16 KB receipt
+/// bound.
+const MAX_CERT_BLOB_BYTES: usize = 4096;
+
+/// Validate one finalize certificate blob: non-empty and within MAX_CERT_BLOB_BYTES.
+fn check_cert_blob(blob: &[u8], name: &str) -> Result<(), DaffyError> {
+    let len = blob.len();
+    if len == 0 || len > MAX_CERT_BLOB_BYTES {
+        return Err(DaffyError::InvalidInput {
+            message: format!(
+                "InvalidCertificate: {name} length must be 1..={MAX_CERT_BLOB_BYTES} bytes (got {len})"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Deploy-time cross-check (Gate 2 W1.3, factory-side, G-ruled): read the just-
+/// installed canister's certified module hash from the management canister and
+/// require it to equal the SHA-256 of the WASM we shipped ("verify what landed ==
+/// what we shipped"). The profile canister cannot self-check (it is not its own
+/// controller and install hooks are synchronous), so the controller — this
+/// factory — performs the read-back in its async update context.
+async fn assert_deployed_module_hash(
+    canister_id: Principal,
+    expected: &[u8],
+) -> Result<(), DaffyError> {
+    let (status,) = canister_status(CanisterIdRecord { canister_id })
+        .await
+        .map_err(|e| DaffyError::CanisterCallFailed {
+            message: format!("deploy cross-check: canister_status({canister_id}) failed: {:?}", e),
+        })?;
+    match status.module_hash {
+        Some(on_chain) if on_chain.as_slice() == expected => Ok(()),
+        Some(on_chain) => Err(DaffyError::CanisterCallFailed {
+            message: format!(
+                "deploy cross-check FAILED for {canister_id}: on-chain module_hash {} != shipped {}",
+                hex::encode(&on_chain),
+                hex::encode(expected)
+            ),
+        }),
+        None => Err(DaffyError::CanisterCallFailed {
+            message: format!(
+                "deploy cross-check: {canister_id} reports no module_hash after install"
+            ),
+        }),
+    }
+}
 
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 
@@ -199,6 +253,28 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
             message: format!("Failed to install profile canister code: {:?}", e),
         }
     })?;
+
+    // W1.3 deploy cross-check (MINT): verify what landed == what we shipped
+    // BEFORE registering the mapping. On mismatch, never insert the entry and
+    // clean up the mis-deployed canister — no orphan mappings, no half-registered
+    // profiles (ruled condition 1a).
+    if let Err(e) = assert_deployed_module_hash(new_canister_id, module_hash_bytes.as_slice()).await
+    {
+        log_error!(
+            "get_or_create: deploy cross-check failed for {}: {} — cleaning up, not registering",
+            new_canister_id,
+            e
+        );
+        let _ = stop_canister(CanisterIdRecord {
+            canister_id: new_canister_id,
+        })
+        .await;
+        let _ = delete_canister(CanisterIdRecord {
+            canister_id: new_canister_id,
+        })
+        .await;
+        return Err(e);
+    }
 
     PROFILE_MAP.with(|pm| {
         pm.borrow_mut()
@@ -390,6 +466,20 @@ async fn upgrade_profile_canister(user_principal: Principal) -> Result<(), Daffy
         }
     })?;
 
+    // W1.3 deploy cross-check (UPGRADE): the canister already exists and its
+    // mapping is load-bearing — on mismatch, fail LOUDLY but leave the mapping
+    // and canister intact (alarm, not deletion; ruled condition 1b).
+    if let Err(e) =
+        assert_deployed_module_hash(canister_id_principal, module_hash_bytes.as_slice()).await
+    {
+        log_error!(
+            "upgrade_profile_canister: deploy cross-check failed for {}: {} — mapping left intact",
+            canister_id_principal,
+            e
+        );
+        return Err(e);
+    }
+
     log_event!(
         "upgrade_profile_canister: upgraded {} for {} (by admin {})",
         canister_id_principal,
@@ -450,12 +540,14 @@ fn unmap_deleted_profile() -> Result<(), DaffyError> {
 /// Narrow scope:
 /// - target canister must be a managed profile canister
 /// - target receipt must exist and not already be finalized
-/// - certificate blob must be non-empty and <= 10_000 bytes
+/// - each certificate blob (phase_b_certificate, module_hash_certificate) must
+///   be non-empty and <= MAX_CERT_BLOB_BYTES (v4 two-certificate finalize)
 #[ic_cdk::update]
 async fn finalize_profile_receipt(
     canister_id: Principal,
     receipt_id_hex: String,
     certificate: Vec<u8>,
+    module_hash_certificate: Vec<u8>,
 ) -> Result<String, DaffyError> {
     let caller = require_authenticated()?;
 
@@ -469,15 +561,11 @@ async fn finalize_profile_receipt(
         });
     }
 
-    let cert_len = certificate.len();
-    if cert_len == 0 || cert_len > 10_000 {
-        return Err(DaffyError::InvalidInput {
-            message: format!(
-                "InvalidCertificate: certificate length must be 1..=10000 bytes (got {})",
-                cert_len
-            ),
-        });
-    }
+    // Per-blob bounds (mktd02-v4 two-certificate finalize). Each certificate is
+    // an independent read_state/BLS artifact (~2 KB observed on mainnet); bound
+    // each blob separately with headroom rather than a single combined cap.
+    check_cert_blob(&certificate, "phase_b_certificate")?;
+    check_cert_blob(&module_hash_certificate, "module_hash_certificate")?;
 
     let receipt_lookup: Result<(Option<MktdReceiptFinalizationView>,), _> = ic_cdk::call(
         canister_id,
@@ -516,7 +604,7 @@ async fn finalize_profile_receipt(
     let call_result: Result<(Result<String, DaffyError>,), _> = ic_cdk::call(
         canister_id,
         "mktd_finalize_receipt",
-        (receipt_id_hex.clone(), certificate),
+        (receipt_id_hex.clone(), certificate, module_hash_certificate),
     )
     .await;
 

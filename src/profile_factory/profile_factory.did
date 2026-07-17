@@ -36,8 +36,9 @@ service : () -> {
   // Narrow scope:
   // - target canister must be a managed profile canister
   // - target receipt must exist and not already be finalized
-  // - certificate blob must be non-empty and <= 10_000 bytes
-  finalize_profile_receipt : (principal, text, blob) -> (Result_1);
+  // - each certificate blob (phase_b_certificate, module_hash_certificate) must
+  //   be non-empty and <= 4096 bytes (v4 two-certificate finalize)
+  finalize_profile_receipt : (principal, text, blob, blob) -> (Result_1);
   get_cycle_balance : () -> (nat) query;
   get_or_create_profile_canister : () -> (Result_2);
   // ADMIN ONLY — list all principal → canister_id mappings.
