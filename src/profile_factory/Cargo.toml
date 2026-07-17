@@ -3,8 +3,10 @@ name = "profile_factory"
 version = "0.1.0"
 edition = "2021"
 
+# "lib" (rlib) added alongside "cdylib" so the [R] unit tests link natively;
+# the shipped canister artifact is still the cdylib wasm.
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
 # ic-cdk 0.16→0.18 forced workspace-wide (executor `links` collision).

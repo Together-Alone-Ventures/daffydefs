@@ -635,3 +635,53 @@ async fn finalize_profile_receipt(
 }
 
 ic_cdk::export_candid!();
+
+// ===========================================================================
+// [R] unit tests — per-blob guard bounds + 4-arg factory-proxy candid shape.
+// Pure logic only (no ic0); mirrors the helper's factory tests in ICP-Delete-Leaf.
+// ===========================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candid::{Decode, Encode};
+
+    #[test]
+    fn cert_blob_bounds() {
+        // empty -> Err; 1 byte -> Ok; exactly at limit -> Ok; over limit -> Err.
+        assert!(check_cert_blob(&[], "x").is_err(), "empty must reject");
+        assert!(check_cert_blob(&[0u8; 1], "x").is_ok(), "1 byte must pass");
+        assert!(
+            check_cert_blob(&vec![0u8; MAX_CERT_BLOB_BYTES], "x").is_ok(),
+            "exactly {MAX_CERT_BLOB_BYTES} must pass"
+        );
+        assert!(
+            check_cert_blob(&vec![0u8; MAX_CERT_BLOB_BYTES + 1], "x").is_err(),
+            "over limit must reject"
+        );
+    }
+
+    #[test]
+    fn factory_finalize_4arg_candid_shape() {
+        // The ruled contract: finalize_profile_receipt(principal, text, blob, blob).
+        let subject = Principal::from_slice(&[9, 8, 7, 6]);
+        let rid = "cafef00d".to_string();
+        let phase_b = vec![0xAAu8; 40];
+        let mh = vec![0xBBu8; 60];
+        let bytes = Encode!(&subject, &rid, &phase_b, &mh).unwrap();
+        let (s, r, pb, m): (Principal, String, Vec<u8>, Vec<u8>) =
+            Decode!(&bytes, Principal, String, Vec<u8>, Vec<u8>).unwrap();
+        assert_eq!(s, subject);
+        assert_eq!(r, rid);
+        assert_eq!(pb, phase_b);
+        assert_eq!(m, mh);
+        // Distinct arity: the OLD 3-arg (principal,text,blob) encoding must NOT
+        // decode as the new 4-arg shape — the trailing module_hash_certificate is
+        // missing. (Candid tolerates dropping trailing args, so the reverse
+        // direction is intentionally not asserted.)
+        let old_3arg = Encode!(&subject, &rid, &phase_b).unwrap();
+        assert!(
+            Decode!(&old_3arg, Principal, String, Vec<u8>, Vec<u8>).is_err(),
+            "old 3-arg args must not satisfy the new 4-arg contract (missing module_hash_certificate)"
+        );
+    }
+}
