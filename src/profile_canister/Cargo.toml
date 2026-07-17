@@ -18,12 +18,13 @@ serde = { version = "1", features = ["derive"] }
 ic-stable-structures = "0.7"
 shared = { path = "../shared" }
 
-# MKTd02: Cryptographically Verifiable Deletion Receipts (v0.4.1 re-pin: ic-cdk
-# 0.18 / is-0.7). NOTE: tag mktd02-v0.4.1 must be created by engine R1 first;
-# build-verified here against the local engine working tree (see deliverable).
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", tag = "mktd02-v0.4.1", package = "mktd02" }
+# MKTd02: Cryptographically Verifiable Deletion Receipts (Gate 2 v4 adoption:
+# mktd02-v0.5.0 — subnet-attested code identity; 3-arg finalize adds the
+# module_hash_certificate). Released tag, never a path dep.
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", tag = "mktd02-v0.5.0", package = "mktd02" }
 
-# zombie-core: pin to the same source form as mktd02 to avoid duplicate crates
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.3.1" }
+# zombie-core: pin to EXACTLY what mktd02-v0.5.0 pins (mktd02/Cargo.toml @ tag
+# mktd02-v0.5.0 -> zombie-core-v0.4.0) to keep a single zombie-core in the graph.
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.4.0" }
 
 hex = "0.4"

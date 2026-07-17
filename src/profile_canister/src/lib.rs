@@ -698,16 +698,20 @@ fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
 /// Parameters:
 ///   receipt_id_hex — hex-encoded receipt ID (from Phase A/B)
 ///   certificate — raw BLS certificate blob (from Phase B)
+///   module_hash_certificate — read_state certificate over
+///     /canister/<id>/module_hash (fetched off-canister by zd-finalize-helper);
+///     stored opaquely by the engine, never parsed in-canister (mktd02-v4).
 ///
 /// On success, receipt finalization fields are written and the finalization lock is released.
 #[ic_cdk::update]
 fn mktd_finalize_receipt(
     receipt_id_hex: String,
     certificate: Vec<u8>,
+    module_hash_certificate: Vec<u8>,
 ) -> Result<String, DaffyError> {
     let receipt_id = decode_receipt_id(&receipt_id_hex)?;
 
-    mktd02::finalize_receipt(&receipt_id, certificate)
+    mktd02::finalize_receipt(&receipt_id, certificate, module_hash_certificate)
         .map_err(|e| DaffyError::CanisterCallFailed {
             message: format!("Finalization failed: {}", e),
         })?;

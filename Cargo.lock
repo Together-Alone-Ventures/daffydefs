@@ -424,8 +424,8 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "mktd02"
-version = "0.4.1"
-source = "git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?tag=mktd02-v0.4.1#921d710c8e7295739ed6055991383bb0929e4cec"
+version = "0.5.0"
+source = "git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?tag=mktd02-v0.5.0#f0687ad23d1718aeb9231d32642089bd3cc01bc0"
 dependencies = [
  "candid",
  "ciborium",
@@ -856,8 +856,8 @@ dependencies = [
 
 [[package]]
 name = "zombie-core"
-version = "0.3.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.3.1#508f2f8bb88f4395293168c6ef25c92a67dee894"
+version = "0.4.0"
+source = "git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.4.0#f3ab186fd091b9e618dc944e95b518366ac0c43e"
 dependencies = [
  "candid",
  "ciborium",

@@ -77,7 +77,7 @@ service : (principal, opt text) -> {
   // certificate — raw BLS certificate blob (from Phase B)
   // 
   // On success, receipt finalization fields are written and the finalization lock is released.
-  mktd_finalize_receipt : (text, blob) -> (Result);
+  mktd_finalize_receipt : (text, blob, blob) -> (Result);
   // Phase B: Return the pending certificate response, if available.
   // 
   // Returns `Some(MktdPendingCertificateResponse)` only when a pending receipt
