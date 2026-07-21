@@ -72,7 +72,10 @@ echo "factory module_hash: $FACTORY_MH"
 # --- Step 2: fresh replica ----------------------------------------------------
 log "start clean local replica"
 dfx stop >/dev/null 2>&1 || true
-dfx start --clean --background >/dev/null 2>&1
+# `dfx start --background` reports a non-zero detach in some environments (WSL)
+# even when the replica process starts and becomes healthy; tolerate it and let
+# the ping-loop below be the sole readiness check (mirrors upgrade_compat_check.sh).
+timeout 120 dfx start --clean --background >/dev/null 2>&1 || true
 for _ in $(seq 1 30); do dfx ping "$NETWORK" >/dev/null 2>&1 && break; sleep 2; done
 dfx ping "$NETWORK" >/dev/null 2>&1 || die "replica did not come up"
 dfx identity export "$(dfx identity whoami)" > "$PEM"
