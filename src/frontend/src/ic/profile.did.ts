@@ -83,6 +83,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     mktd_is_pending: IDL.Func([], [IDL.Bool], ["query"]),
 
     // Phase C (controller-only; typically called via factory proxy)
-    mktd_finalize_receipt: IDL.Func([IDL.Text, IDL.Vec(IDL.Nat8)], [ResultText], []),
+    // v4: (receipt_id, phase_b_certificate, module_hash_certificate)
+    mktd_finalize_receipt: IDL.Func([IDL.Text, IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8)], [ResultText], []),
   });
 };

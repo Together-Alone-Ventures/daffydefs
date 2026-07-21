@@ -26,7 +26,8 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
 
     // Phase C proxy (controller path)
     finalize_profile_receipt: IDL.Func(
-      [IDL.Principal, IDL.Text, IDL.Vec(IDL.Nat8)],
+      // v4: (subject, receipt_id, phase_b_certificate, module_hash_certificate)
+      [IDL.Principal, IDL.Text, IDL.Vec(IDL.Nat8), IDL.Vec(IDL.Nat8)],
       [ResultText],
       []
     ),

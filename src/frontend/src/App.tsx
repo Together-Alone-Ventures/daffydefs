@@ -114,7 +114,7 @@ function App() {
   }, []);
 
   const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
-    if (!profileActor || !profileCanisterId || !factoryActor) return;
+    if (!profileActor || !profileCanisterId) return;
 
     // FIX 3: Short-circuit if receipt is already finalized — prevents
     // a second background call from driving status back to "pending".
@@ -130,70 +130,15 @@ function App() {
       // continue into normal retry path
     }
 
-    setFinalizationStatus("finalizing");
-    const sleep = (ms: number) =>
-      new Promise((resolve) => {
-        setTimeout(resolve, ms);
-      });
-
-    try {
-      let pendingCert: any = null;
-      // FIX 2: Extend polling window — 20 retries, cap raised to 4000ms (~60s total).
-      for (let retry = 0; retry <= 20; retry++) {
-        const certResult = await profileActor.mktd_get_certificate();
-        const cert = certResult && certResult.length > 0 ? certResult[0] : null;
-        if (cert && cert.receipt_id === receiptId) {
-          pendingCert = cert;
-          break;
-        }
-        if (retry < 20) {
-          const delayMs = Math.min(250 * 2 ** retry, 4000);
-          await sleep(delayMs);
-        }
-      }
-
-      if (!pendingCert) {
-        // FIX 4: Schedule a real retry so the UI message is truthful.
-        // One deferred attempt after 15s; if it also fails the user
-        // is advised to refresh.
-        setFinalizationStatus("pending");
-        setTimeout(() => {
-          void finalizeReceiptInBackground(receiptId);
-        }, 15_000);
-        return;
-      }
-
-      const finalizeResult = await factoryActor.finalize_profile_receipt(
-        Principal.fromText(profileCanisterId),
-        receiptId,
-        pendingCert.certificate
-      );
-      console.info("[delete-flow] finalize_profile_receipt raw result", finalizeResult);
-
-      if (!isOk(finalizeResult as any)) {
-        const finalizeError = getError(finalizeResult as any);
-        if (!finalizeError.toLowerCase().includes("already finalized")) {
-          setFinalizationStatus("pending");
-          setTimeout(() => {
-            void finalizeReceiptInBackground(receiptId);
-          }, 15_000);
-          return;
-        }
-      }
-
-      const refreshedReceipt = await profileActor.mktd_get_receipt(receiptId);
-      console.info("[delete-flow] refreshed mktd_get_receipt raw result", refreshedReceipt);
-      if (refreshedReceipt && refreshedReceipt.length > 0 && refreshedReceipt[0]) {
-        setCvdrData(mapReceiptToCvdr(refreshedReceipt[0]));
-      }
-      setFinalizationStatus("finalized");
-    } catch {
-      setFinalizationStatus("pending");
-      setTimeout(() => {
-        void finalizeReceiptInBackground(receiptId);
-      }, 15_000);
-    }
-  }, [factoryActor, mapReceiptToCvdr, profileActor, profileCanisterId]);
+    // Phase C (finalization) is NOT performed in the browser. Under Plan v2.1 A4
+    // the browser may TRIGGER Phase A (deletion) but never SUBMITS Phase C: the
+    // finalize inputs include a subnet read_state certificate over
+    // /canister/<id>/module_hash that is fetched off-canister by the operator's
+    // verification tooling, which the browser cannot produce. This path is
+    // therefore display-only — "finalized" if the operator has already finalized
+    // (checked above), otherwise the transitional pending-finalization state.
+    setFinalizationStatus("pending");
+  }, [mapReceiptToCvdr, profileActor, profileCanisterId]);
 
   // ----------------------------------------------------------
   // Initialize auth client on mount
@@ -611,27 +556,15 @@ function App() {
                   </div>
                 </div>
               )}
-              {finalizationStatus === "finalizing" && (
-                <div className="card">
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                    <div className="spinner" />
-                    <p style={{ margin: 0, fontWeight: 600 }}>
-                      Finalization in progress — please do not exit or refresh this page.
-                    </p>
-                  </div>
-                </div>
-              )}
               {finalizationStatus === "finalized" && (
                 <p className="muted">Finalized</p>
               )}
               {finalizationStatus === "pending" && (
                 <div className="card">
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                    <div className="spinner" />
-                    <p style={{ margin: 0, fontWeight: 600 }}>
-                      Finalization delayed — the app will retry automatically. Please keep this page open if possible.
-                    </p>
-                  </div>
+                  <p style={{ margin: 0, fontWeight: 600 }}>
+                    Deletion recorded — finalization is completed by the operator's
+                    verification tooling and will appear here once finalized.
+                  </p>
                 </div>
               )}
               {cvdrData && (
