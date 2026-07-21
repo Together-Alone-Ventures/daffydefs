@@ -34,3 +34,6 @@ after_lib.rs
 before_factory.rs
 before_lib.rs
 mktd02_integration_diff.txt
+
+# Gate 2 rollback artifacts — large pre-retrofit wasms stay local; provenance in SHA256SUMS
+rollback_artifacts/*.wasm

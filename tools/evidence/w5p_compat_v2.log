@@ -1,0 +1,182 @@
+
+== Step 1: preflight + archived-artifact integrity ==
+/home/stef_savanah/projects/daffydefs/rollback_artifacts/profile_canister_eb6bb58_PRE.wasm: OK
+PRE candid (2-arg finalize) extracted to /tmp/tmp.Vocc6I1S74/profile_canister_PRE.did
+
+== Step 2: build go-live profile wasm (current v4 source) + shrink; assert == recorded GOLIVE ==
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> src/shared/src/lib.rs:64:17
+   |
+64 |     fn to_bytes(&self) -> Cow<[u8]> {
+   |                 ^^^^^     --------- the same lifetime is hidden here
+   |                 |
+   |                 the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+64 |     fn to_bytes(&self) -> Cow<'_, [u8]> {
+   |                               +++
+
+warning: `shared` (lib) generated 1 warning
+warning: unused import: `log_error`
+  --> src/profile_canister/src/lib.rs:37:14
+   |
+37 | use shared::{log_error, log_event, DaffyError, SCHEMA_VERSION_V1};
+   |              ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `profile_canister` (lib) generated 1 warning (run `cargo fix --lib -p profile_canister` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.04s
+PRE    (eb6bb58): 8f7b15f78ed38fedafc999e968cf4080b52ae7b58c5c20de565aee9537d3f59a
+GOLIVE (current): 85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea
+
+== Step 3: tear down leftover replica, start fresh --clean ==
+replica up; IC_URL=http://127.0.0.1:4943
+
+== Step 4: temp 3-canister project (p1/p2/p3, custom type, go-live wasm+candid) ==
+operator/controller principal: 77nyo-irtov-2cgaq-we4j2-chcro-5a4ia-pj5ls-ulc5v-6oipu-lojh5-2ae
+
+== Step 5: create p1/p2/p3 canister ids + install PRE (eb6bb58) on each ==
+p1 canister created with canister id: ulvla-h7777-77774-qaacq-cai
+p2 canister created with canister id: ucwa4-rx777-77774-qaada-cai
+p3 canister created with canister id: ufxgi-4p777-77774-qaadq-cai
+P1=ulvla-h7777-77774-qaacq-cai  P2=ucwa4-rx777-77774-qaada-cai  P3=ufxgi-4p777-77774-qaadq-cai
+Installed code for canister p1, with canister ID ulvla-h7777-77774-qaacq-cai
+Installed code for canister p2, with canister ID ucwa4-rx777-77774-qaada-cai
+Installed code for canister p3, with canister ID ufxgi-4p777-77774-qaadq-cai
+
+== Step 6: P1: create profile + Phase A delete (OLD code) => pending receipt ==
+P1 pending receipt: f7f4e913ecfdd15a3ca871396bfd6900e1a5179b366fa86b2a6a9413636934b3  deletion_seq(pre)=1
+
+== Step 7: P1: FINALIZE UNDER OLD CODE via v0.4.1-era 2-arg path ==
+(
+  variant {
+    Ok = "Receipt f7f4e913ecfdd15a3ca871396bfd6900e1a5179b366fa86b2a6a9413636934b3 finalized"
+  },
+)
+P1 finalized v3 receipt under OLD code (8192 bound); protocol_version = "mktd02-v3"
+
+== Step 8: P1: UPGRADE to go-live v4 (no pending receipt => lock invariant permits it) ==
+Upgraded code for canister p1, with canister ID ulvla-h7777-77774-qaacq-cai
+
+== Step 9: P1: assert v3 receipt survived (readable/exportable, seq + tombstone preserved) ==
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+P1 OK: v3 receipt survived 8192->16384; deletion_seq=1 preserved; tombstoned; cert null
+
+== Step 10: P2: create profile (NO deletion) under OLD code ==
+
+== Step 11: P2: UPGRADE to go-live; assert plain state intact + functional ==
+Upgraded code for canister p2, with canister ID ucwa4-rx777-77774-qaada-cai
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+P2 OK: plain profile survived upgrade and remains writable
+
+== Step 12: P3: (installed PRE empty) UPGRADE to go-live ==
+Upgraded code for canister p3, with canister ID ufxgi-4p777-77774-qaadq-cai
+
+== Step 13: P3: full fresh v4 cycle (create -> delete -> helper guard + DIRECT 3-arg finalize) ==
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+guard: PASS
+provenance: expected_module_hash=operator-supplied, pending_commitment=query-derived, phase_b_certificate=query-fetched, receipt_id=query-derived
+  [ok] G1_path_identity — leaf found for canister ufxgi-4p777-77774-qaadq-cai
+  [ok] G2_module_hash_value — match: 85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea
+  [ok] G4_same_trust_root — BLS + delegation OK against agent trust anchor
+  [ok] G3_commitment_match — match: fdf87796e0fd83ac923a6d8eddfb183d19e5bef6f61670ab793ad600a547e252
+  [ok] G5_time_relation — t_module_hash=1784534847604120825 ns, t_commitment=1784534847604120825 ns, delta=0.0s
+calling ufxgi-4p777-77774-qaadq-cai::mktd_finalize_receipt [direct 3-arg (receipt_id, phase_b, module_hash_cert)] (subject=ufxgi-4p777-77774-qaadq-cai, receipt_id=17566a12a6481529f7024e8d0f3342a1c62159ea3f97fdd00218bcc9bcf26f1b, phase_b=1374 B, module_hash_cert=1371 B)
+finalize OK: Receipt 17566a12a6481529f7024e8d0f3342a1c62159ea3f97fdd00218bcc9bcf26f1b finalized
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+P3 OK: fresh v4 cycle on an UPGRADED canister; protocol_version = "mktd02-v4"; both certificates written (guard PASS + 3-arg finalize OK)
+
+== Step 14: COEXISTENCE: P1 v3 + P3 v4 both valid under the same 16384 go-live schema ==
+  P1 (migrated, finalized under OLD code): protocol_version = "mktd02-v3" ; bls present ; readable under go-live
+  P3 (fresh v4 on upgraded canister)     : protocol_version = "mktd02-v4" ; both certs ; readable under go-live
+  legacy-isolation: protocol_version differs (v3 vs v4) as expected
+  (OPTIONAL CVDR-Verify-against-P1 legacy-isolation classification: NOT run this pass — verifier fixture out of scope for the plumbing check.)
+
+============================================================
+UPGRADE-COMPAT CHECK v2 PASSED — §0.3 satisfied (three-canister shape):
+  P1 finalized-v3 receipt survived the 8192->16384 ReceiptBytes migration,
+     readable/exportable under go-live, deletion_seq + tombstone preserved.
+  P2 plain profile survived and stayed functional.
+  P3 fresh v4 cycle succeeded on an upgraded canister (both certificates).
+  PRE    (eb6bb58): 8f7b15f78ed38fedafc999e968cf4080b52ae7b58c5c20de565aee9537d3f59a
+  GOLIVE (current): 85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea
+  P1 receipt=f7f4e913ecfdd15a3ca871396bfd6900e1a5179b366fa86b2a6a9413636934b3   P3 receipt=17566a12a6481529f7024e8d0f3342a1c62159ea3f97fdd00218bcc9bcf26f1b
+Reminder: local root key != mainnet; this proves migration plumbing, not a V3 verdict.
+============================================================

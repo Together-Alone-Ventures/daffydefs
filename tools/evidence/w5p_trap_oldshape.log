@@ -1,0 +1,64 @@
+
+== Step 1: preflight + archived-artifact integrity ==
+/home/stef_savanah/projects/daffydefs/rollback_artifacts/profile_canister_eb6bb58_PRE.wasm: OK
+
+== Step 2: build go-live profile wasm (current v4 source) + shrink ==
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> src/shared/src/lib.rs:64:17
+   |
+64 |     fn to_bytes(&self) -> Cow<[u8]> {
+   |                 ^^^^^     --------- the same lifetime is hidden here
+   |                 |
+   |                 the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+64 |     fn to_bytes(&self) -> Cow<'_, [u8]> {
+   |                               +++
+
+warning: `shared` (lib) generated 1 warning
+warning: unused import: `log_error`
+  --> src/profile_canister/src/lib.rs:37:14
+   |
+37 | use shared::{log_error, log_event, DaffyError, SCHEMA_VERSION_V1};
+   |              ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `profile_canister` (lib) generated 1 warning (run `cargo fix --lib -p profile_canister` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.26s
+PRE    (eb6bb58): 8f7b15f78ed38fedafc999e968cf4080b52ae7b58c5c20de565aee9537d3f59a
+GOLIVE (current): 85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea
+
+== Step 3: clean local replica (reuse if already healthy; else start --clean) ==
+
+== Step 4: install PRE (eb6bb58) profile wasm — operator = controller ==
+Reinstalled code for canister profile_canister, with canister ID lqy7q-dh777-77777-aaaaq-cai
+profile canister (OLD code): lqy7q-dh777-77777-aaaaq-cai
+
+== Step 5: create state under OLD code: upsert profile record + Phase A delete => pending receipt ==
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+WARNING: DEPRECATION WARNING: Cannot fetch Candid interface from canister metadata, reading Candid interface from the local build artifact. In a future dfx release, we will only read candid interface from canister metadata.
+WARNING: Please add the following to dfx.json to store local candid file into metadata:
+"metadata": [
+   {
+     "name": "candid:service"
+   }
+]
+pre-upgrade pending receipt: 25c480994930bb51dfc299b4159b832a653a82c23a6872bc74f98e764541ad4f
+
+== Step 6: UPGRADE profile canister to go-live v4 wasm (mode=upgrade, arg=(opt text)) ==
+Error: Failed to install wasm module to canister 'profile_canister'.
+Caused by: Failed during wasm installation call
+Caused by: The replica returned a rejection error: reject code CanisterError, reject message Error from Canister lqy7q-dh777-77777-aaaaq-cai: Canister called `ic0.trap` with message: 'MKTd02: cannot change certified data while finalization lock is held. Finalize the pending receipt before upgrading, refreshing state, or performing any action that changes certified data.'.
+Consider gracefully handling failures from this canister or altering the canister to handle exceptions. See documentation: https://internetcomputer.org/docs/current/references/execution-errors#trapped-explicitly, error code Some("IC0503")
+
+COMPAT CHECK FAILED at step 6 (exit 255) — STOP: G return-for-ruling trigger (incompatible stable-memory migration).
