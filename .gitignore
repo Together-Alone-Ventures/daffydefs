@@ -37,3 +37,7 @@ mktd02_integration_diff.txt
 
 # Gate 2 rollback artifacts — large pre-retrofit wasms stay local; provenance in SHA256SUMS
 rollback_artifacts/*.wasm
+
+# Gate 2 W5 ceremony handoff — operator-held evidence, referenced by path from RELEASES;
+# not committed (durable copies land in CVDR-Verify via W6 with pinned provenance)
+ceremony_handoff_w5_remediated/

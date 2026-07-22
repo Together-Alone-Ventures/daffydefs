@@ -12,9 +12,9 @@
 | Field | Value |
 |---|---|
 | App name | **DaffyDefs** |
-| Version | `PENDING` — proposed at gate close |
-| Release date | `PENDING` — W5 go-live |
-| Signer | `PENDING` — deploy ceremony signer |
+| Version | proposed at gate close (held for docs word) |
+| Release date | ceremony 21 Jul 2026; R-b remediation 22 Jul 2026 |
+| Signer | `zd-deployer` = `q3gkv-ebczt-…-dqe` (stef-mvp), factory `5g26e` sole controller |
 
 ## Baselines
 
@@ -22,7 +22,7 @@ This release identifies **two** baselines. Both are required to reproduce or aud
 
 | Baseline | Value |
 |---|---|
-| **DaffyDefs application baseline** | source commit `PENDING` — the W1/W2 merge commit (see note) |
+| **DaffyDefs application baseline** | source commit `5ca421f` (R-b remediation SHA; supersedes ceremony go-live `25f199f` — see module_hash history) |
 | **Integration baseline** | `ICP-Delete-Leaf @ fe55ff7` — helper (`zd-finalize-helper`) + host-integration contract docs |
 
 **Note on the application baseline.** W1/W2 landed as three direct commits on `main`
@@ -43,12 +43,44 @@ is a decision for the ceremony, not something to resolve by picking a value here
 
 ## module_hash
 
-**`PENDING — mainnet go-live value; local/PocketIC hashes are prohibited here.`**
+Filled from the mainnet deployment — R-b scoped remediation, 22 Jul 2026 (each value
+read back certified via `fetch-cert`):
 
-Two distinct Module Hashes are recorded at go-live. The **PROFILE CANISTER Module Hash**
+| Hash | Value | Role |
+|---|---|---|
+| **Profile canister Module Hash** (current deployed) | `07421692872c49b1d44d700ab3c30d37d0f9ef53345de0b5de1328a012dd1af8` | subnet-attested code anchor for receipts finalized under the remediation build |
+| **Factory Module Hash** (current deployed) | `ccbfbdfd1ecc74667d09ae76fea1f1dca708b8855ef6526b64a6166d219bb905` | host/factory deployment provenance — **not** a receipt code anchor |
+| **Ceremony receipt attested anchor** (historical) | `85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea` | the code identity the genuine W5 receipt `0eceff7d…` certifies (profile hash at deletion, before the R-b profile upgrade); its V3-A verdict = **SUBNET-ATTESTED** |
+
+Two distinct Module Hashes are recorded. The **PROFILE CANISTER Module Hash**
 is the subnet-attested code anchor carried by every receipt (the value V3 certifies). The
 **FACTORY Module Hash** is host/factory deployment provenance only — it is not the
 receipt's code anchor.
+
+**Superseded ceremony build (history).** The original 21 Jul ceremony deployed profile
+`85a326cd…` / factory `b9b6a052…` from go-live SHA `25f199f`. The R-b remediation
+(SHA `5ca421f`) re-upgraded factory `5g26e` (→ `ccbfbdfd…`) and ceremony profile `y5izv`
+(→ `07421692…`). The prior factory `b9b6a052…` is archived as the rollback anchor
+`rollback_artifacts/profile_factory_25f199f_PRE.wasm`.
+
+## Ceremony & remediation record
+
+**W5 mainnet ceremony (21 Jul 2026)** — §2 factory upgrade `5g26e` → `b9b6a052` (POST-verified);
+§2.4 frontend asset-only sync to `5b3yq` (factory + bulletin invariant); §3 NO-OP on the 12
+legacy profiles; §4 minted ceremony profile `y5izv-byaaa-aaaaj-qsdfq-cai` (owner
+`zd-ceremony-test` = `bnei3-…-7ae`, external hash `85a326cd`), Phase A delete → receipt
+`0eceff7de5785e5d50bedca0cb3553409ba6ef6c5e2929715f903b48ff6abf70`, factory 4-arg finalize OK
+(first live-mainnet exercise of the v4 proxy), guard PASS (delta 1.31s).
+
+**§5.1 incident + remediation (R-a/R-b).** The W5 §5.1 verifier network-fetch V3-A false-failed:
+DaffyDefs' `mktd_get_receipt` export struct dropped `module_hash_certificate`, so the verifier
+could not see the second certificate (the on-chain receipt was complete — proven at R-b step 5:
+both certs present). Remediation: **R-a** (SHA `5ca421f`) exports the field additively; **R-b**
+(22 Jul) re-upgraded `5g26e` (→ `ccbfbdfd`) and `y5izv` (→ `07421692`) on mainnet. **R-c verifier
+re-run: exit 0, V1/V2/V4 PASS, V3-A SUBNET-ATTESTED**; V3 (live) reports the expected
+upgraded-since-deletion divergence with provenance. Full evidence: handoff directory
+`ceremony_handoff_w5_remediated/`. §3 no-op remained fully in force; only `5g26e` and `y5izv`
+were ever touched.
 
 This field takes the mainnet value observed at go-live, read back from the deployed
 canister. A hash from a local `dfx` or PocketIC build MUST NOT be entered, even
