@@ -15,6 +15,7 @@ type MktdPendingCertificateResponse = record {
 };
 type MktdReceiptResponse = record {
   bls_certificate : opt blob;
+  module_hash_certificate : opt blob;
   receipt_id : text;
   canister_id : principal;
   post_state_hash : text;

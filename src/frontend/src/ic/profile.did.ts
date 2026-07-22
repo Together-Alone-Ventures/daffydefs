@@ -56,6 +56,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     deletion_seq: IDL.Nat64,
     bls_certificate: IDL.Opt(IDL.Vec(IDL.Nat8)),
     trust_root_key_id: IDL.Text,
+    module_hash_certificate: IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
 
   const MktdPendingCertificateResponse = IDL.Record({

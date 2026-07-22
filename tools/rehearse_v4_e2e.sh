@@ -26,6 +26,12 @@
 #   installed with the operator as controller. The normal app path is the factory
 #   proxy (also exercised here).
 #
+# EXPORT-GAP REGRESSION GUARD (added per the W5 §5.1 incident): after EACH finalize
+#   (factory and direct), this script fetches mktd_get_receipt and asserts BOTH
+#   bls_certificate AND module_hash_certificate are present. The W5 mainnet ceremony
+#   V3-A false-failed because the export struct silently dropped module_hash_certificate;
+#   this assertion fails loudly if that export gap ever regresses.
+#
 # Usage:
 #   HELPER_BIN=/path/to/zd-finalize-helper  bash tools/rehearse_v4_e2e.sh
 #   (HELPER_BIN defaults to the released ICP-Delete-Leaf@fe55ff7 build if present.)
@@ -95,7 +101,8 @@ echo "factory cross-check PASS ($ONCHAIN_F)"
 
 guard_then_finalize() { # <profile> <mode> [factory_id]
   local profile="$1" mode="$2" factory="${3:-}"
-  dfx canister call "$profile" delete_profile --network "$NETWORK" >/dev/null
+  local rid; rid="$(dfx canister call "$profile" delete_profile --network "$NETWORK" 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -1)"
+  [[ -n "$rid" ]] || die "[$mode] no receipt_id from delete_profile"
   dfx canister call "$profile" mktd_is_pending --network "$NETWORK" | grep -q true \
     || die "[$mode] expected pending receipt after delete_profile"
   "$HELPER_BIN" --ic-url "$IC_URL" --fetch-root-key --identity-pem "$PEM" guard \
@@ -116,7 +123,17 @@ guard_then_finalize() { # <profile> <mode> [factory_id]
   # FinalizedCandidate proof: Phase B now returns none (only pending receipts show).
   dfx canister call "$profile" mktd_get_certificate --network "$NETWORK" | grep -q "null" \
     || die "[$mode] receipt still pending after finalize (expected FinalizedCandidate)"
-  echo "[$mode] OK — finalized; both certificates present (Phase B now none)"
+  # [W5 §5.1 regression guard] Export-gap assertion: after finalize, mktd_get_receipt
+  # MUST expose BOTH certificates. Added because the W5 ceremony's §5.1 V3-A false-failed
+  # when the export struct silently dropped module_hash_certificate (network-fetch verify).
+  # --candid pins the response type so field names resolve (dfx renders numeric
+  # field ids otherwise, which would defeat this by-name export assertion).
+  local rcpt; rcpt="$(dfx canister call "$profile" mktd_get_receipt "(\"$rid\")" --candid "$ROOT_DIR/src/profile_canister/profile_canister.did" --network "$NETWORK")"
+  echo "$rcpt" | grep -qE 'bls_certificate = opt blob' \
+    || die "[$mode] EXPORT-GAP: bls_certificate absent in mktd_get_receipt post-finalize"
+  echo "$rcpt" | grep -qE 'module_hash_certificate = opt blob' \
+    || die "[$mode] EXPORT-GAP: module_hash_certificate absent in mktd_get_receipt post-finalize (W5 §5.1 regression)"
+  echo "[$mode] OK — finalized; both certificates present in mktd_get_receipt export (Phase B now none)"
 }
 
 # --- Step 4: FACTORY MODE (4-arg) — mint via factory (profile cross-check 1a) --

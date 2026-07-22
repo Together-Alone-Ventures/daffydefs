@@ -157,6 +157,7 @@ pub struct MktdReceiptResponse {
     pub deletion_seq: u64,
     pub bls_certificate: Option<Vec<u8>>,
     pub trust_root_key_id: String,
+    pub module_hash_certificate: Option<Vec<u8>>,
 }
 
 /// Phase B response: BLS certificate for pending receipt.
@@ -667,6 +668,7 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
         deletion_seq: r.deletion_seq,
         bls_certificate: r.bls_certificate,
         trust_root_key_id: r.trust_root_key_id,
+        module_hash_certificate: r.module_hash_certificate,
     })
 }
 
