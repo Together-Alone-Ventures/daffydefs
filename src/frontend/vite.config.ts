@@ -16,6 +16,8 @@ export default defineConfig({
       CANISTER_ID_PROFILE_FACTORY: "",
       CANISTER_ID_INTERNET_IDENTITY: "",
       DFX_NETWORK: "",
+      // F3 deployment placeholder: public zd-finalizer-service origin, no trailing slash.
+      FINALIZER_BASE_URL: "",
     }),
   ],
   build: {

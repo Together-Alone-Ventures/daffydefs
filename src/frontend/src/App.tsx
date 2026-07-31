@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AuthClient } from "@dfinity/auth-client";
 import { HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
@@ -20,6 +20,7 @@ import CreateChallenge from "./components/CreateChallenge";
 import ChallengeDetail from "./components/ChallengeDetail";
 import DeletionReceipt from "./components/DeletionReceipt";
 import { CvdrData } from "./components/DeletionReceipt";
+import { getFinalization, submitFinalization } from "./finalizer";
 import "./App.css";
 
 // ============================================================
@@ -47,10 +48,21 @@ interface ProfileData {
   display_name: string;
 }
 
-type FinalizationStatus = "idle" | "finalizing" | "finalized" | "pending";
+type FinalizationStatus =
+  | "idle"
+  | "submitting"
+  | "polling"
+  | "retrying"
+  | "finalized"
+  | "delayed";
+
+const sleep = (milliseconds: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+
+const FINALIZATION_ATTEMPT_DEADLINE_MS = 3 * 60 * 1_000;
 
 // ============================================================
-// Helper: treat a receipt as finalized if BLS cert is present
+// Helper: finalized canister receipts carry both certificates.
 // ============================================================
 
 const isReceiptFinalized = (r: any): boolean =>
@@ -58,6 +70,8 @@ const isReceiptFinalized = (r: any): boolean =>
     r &&
     r.bls_certificate &&
     r.bls_certificate.length > 0 &&
+    r.module_hash_certificate &&
+    r.module_hash_certificate.length > 0 &&
     r.trust_root_key_id &&
     String(r.trust_root_key_id).length > 0
   );
@@ -77,6 +91,8 @@ function App() {
   const [cvdrData, setCvdrData] = useState<CvdrData | null>(null);
   const [deletionReceiptId, setDeletionReceiptId] = useState<string | null>(null);
   const [finalizationStatus, setFinalizationStatus] = useState<FinalizationStatus>("idle");
+  const deletionRecoveryClaimedRef = useRef(false);
+  const recoveryStartedForCanisterRef = useRef<string | null>(null);
 
   // Profile state
   const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
@@ -93,12 +109,11 @@ function App() {
   const mapReceiptToCvdr = useCallback((r: any): CvdrData => {
     const bytesToHex = (bytes: Array<number> | Uint8Array): string =>
       Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const recordIdRaw = r.record_id && r.record_id.length > 0 ? r.record_id : null;
     return {
       protocol_version: r.protocol_version,
       receipt_id: r.receipt_id,
       canister_id: r.canister_id.toText(),
-      record_id: recordIdRaw ? bytesToHex(recordIdRaw) : "",
+      record_id: bytesToHex(r.record_id),
       pre_state_hash: r.pre_state_hash,
       post_state_hash: r.post_state_hash,
       tombstone_hash: r.tombstone_hash,
@@ -110,34 +125,80 @@ function App() {
       bls_certificate:
         r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
       trust_root_key_id: r.trust_root_key_id,
+      module_hash_certificate:
+        r.module_hash_certificate && r.module_hash_certificate.length > 0
+          ? r.module_hash_certificate[0]
+          : null,
     };
   }, []);
 
-  const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
+  const runAutomaticFinalization = useCallback(async (receiptId: string) => {
     if (!profileActor || !profileCanisterId) return;
 
-    // FIX 3: Short-circuit if receipt is already finalized — prevents
-    // a second background call from driving status back to "pending".
-    try {
-      const existingReceipt = await profileActor.mktd_get_receipt(receiptId);
-      const existing = existingReceipt && existingReceipt.length > 0 ? existingReceipt[0] : null;
-      if (existing && isReceiptFinalized(existing)) {
-        setCvdrData(mapReceiptToCvdr(existing));
-        setFinalizationStatus("finalized");
-        return;
+    const loadFinalizedCanisterReceipt = async () => {
+      const result = await profileActor.mktd_get_receipt(receiptId);
+      const receipt = result && result.length > 0 ? result[0] : null;
+      if (!receipt || !isReceiptFinalized(receipt)) {
+        throw new Error("Finaliser completed but canister receipt is not finalized");
       }
-    } catch {
-      // continue into normal retry path
-    }
+      setCvdrData(mapReceiptToCvdr(receipt));
+      setFinalizationStatus("finalized");
+    };
 
-    // Phase C (finalization) is NOT performed in the browser. Under Plan v2.1 A4
-    // the browser may TRIGGER Phase A (deletion) but never SUBMITS Phase C: the
-    // finalize inputs include a subnet read_state certificate over
-    // /canister/<id>/module_hash that is fetched off-canister by the operator's
-    // verification tooling, which the browser cannot produce. This path is
-    // therefore display-only — "finalized" if the operator has already finalized
-    // (checked above), otherwise the transitional pending-finalization state.
-    setFinalizationStatus("pending");
+    const poll = async (jobId: string, deadline: number, signal: AbortSignal) => {
+      const backoffMs = [1_000, 1_500, 2_500, 4_000, 6_000, 10_000];
+      let attempt = 0;
+      while (Date.now() < deadline) {
+        const remainingMs = deadline - Date.now();
+        const delayMs = Math.min(
+          backoffMs[Math.min(attempt, backoffMs.length - 1)],
+          remainingMs,
+        );
+        await sleep(delayMs);
+        if (Date.now() >= deadline) return "deadline";
+
+        const job = await getFinalization(jobId, signal);
+        if (job.status === "finalized") {
+          await loadFinalizedCanisterReceipt();
+          return "finalized";
+        }
+        if (job.status === "failed") return "failed";
+        setFinalizationStatus("polling");
+        attempt += 1;
+      }
+      return "deadline";
+    };
+
+    for (let retry = 0; retry <= 2; retry += 1) {
+      const deadline = Date.now() + FINALIZATION_ATTEMPT_DEADLINE_MS;
+      const controller = new AbortController();
+      const deadlineTimer = window.setTimeout(
+        () => controller.abort(),
+        FINALIZATION_ATTEMPT_DEADLINE_MS,
+      );
+      try {
+        setFinalizationStatus(retry === 0 ? "submitting" : "retrying");
+        if (retry > 0) await sleep(2_000 * retry);
+        const job = await submitFinalization(
+          profileCanisterId,
+          receiptId,
+          controller.signal,
+        );
+        if (job.status === "finalized") {
+          await loadFinalizedCanisterReceipt();
+          return;
+        }
+        if (
+          job.status !== "failed" &&
+          (await poll(job.job_id, deadline, controller.signal)) === "finalized"
+        ) return;
+      } catch {
+        // Network/service errors use the same bounded, idempotent resubmission path.
+      } finally {
+        window.clearTimeout(deadlineTimer);
+      }
+    }
+    setFinalizationStatus("delayed");
   }, [mapReceiptToCvdr, profileActor, profileCanisterId]);
 
   // ----------------------------------------------------------
@@ -170,26 +231,34 @@ function App() {
 
   useEffect(() => {
     if (profileActor && profileCanisterId) {
+      if (recoveryStartedForCanisterRef.current === profileCanisterId) return;
+      recoveryStartedForCanisterRef.current = profileCanisterId;
+
       const recoverPendingFinalization = async () => {
         try {
           const isPending = await profileActor.mktd_is_pending();
           if (!isPending) return;
 
+          deletionRecoveryClaimedRef.current = true;
+          setScreen("deletion-receipt");
+          setFinalizationStatus("submitting");
           const certResult = await profileActor.mktd_get_certificate();
           const cert = certResult && certResult.length > 0 ? certResult[0] : null;
           if (cert?.receipt_id) {
-            void finalizeReceiptInBackground(cert.receipt_id);
+            setDeletionReceiptId(cert.receipt_id);
+            setScreen("deletion-receipt");
+            void runAutomaticFinalization(cert.receipt_id);
           } else {
-            setFinalizationStatus("pending");
+            setFinalizationStatus("delayed");
           }
         } catch {
-          setFinalizationStatus("pending");
+          setFinalizationStatus("delayed");
         }
       };
 
       void recoverPendingFinalization();
     }
-    // NOTE: finalizeReceiptInBackground intentionally omitted from deps here.
+    // NOTE: runAutomaticFinalization intentionally omitted from deps here.
     // Including it caused the effect to re-fire on every render during the
     // deletion flow, launching a second background finalization that raced
     // the first and drove status back to "pending".
@@ -242,7 +311,16 @@ function App() {
   // ----------------------------------------------------------
   const loadProfile = async (actor: any) => {
     try {
+      const isPendingDeletion = await actor.mktd_is_pending();
+      if (isPendingDeletion) {
+        deletionRecoveryClaimedRef.current = true;
+        setScreen("deletion-receipt");
+        return;
+      }
+
       const result = await actor.get_profile();
+      if (deletionRecoveryClaimedRef.current) return;
+
       if (isOk(result)) {
         const info = (result as any).Ok;
         setProfileData({
@@ -265,6 +343,7 @@ function App() {
         }
       }
     } catch (e: any) {
+      if (deletionRecoveryClaimedRef.current) return;
       setError(`Failed to load profile: ${e.message || e}`);
       setScreen("error");
     }
@@ -300,6 +379,8 @@ function App() {
     setPrincipal(null);
     setProfileCanisterId(null);
     setProfileData(null);
+    deletionRecoveryClaimedRef.current = false;
+    recoveryStartedForCanisterRef.current = null;
     setProfileActor(null);
     setFactoryActor(null);
     setSelectedChallengeId(null);
@@ -364,7 +445,6 @@ function App() {
 
     try {
       const result = await profileActor.delete_profile();
-      console.info("[delete-flow] delete_profile raw result", result);
       if (isOk(result as any)) {
         const receiptIdRaw = (result as any).Ok;
         if (typeof receiptIdRaw !== "string" || receiptIdRaw.length === 0) {
@@ -373,33 +453,10 @@ function App() {
         }
 
         const receiptId = receiptIdRaw;
-        console.info("[delete-flow] extracted receiptId", receiptId);
         setDeletionReceiptId(receiptId);
         setScreen("deletion-receipt");
-
-        // FIX 1 + FIX 2: Only launch background finalization if the receipt
-        // is not already finalized. If it is, set "finalized" immediately and
-        // return — do not hand off to the background function at all.
-        const receiptResult = await profileActor.mktd_get_receipt(receiptId);
-        console.info("[delete-flow] initial mktd_get_receipt raw result", receiptResult);
-
-        if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
-          const receipt = receiptResult[0];
-          setCvdrData(mapReceiptToCvdr(receipt));
-
-          if (isReceiptFinalized(receipt)) {
-            setFinalizationStatus("finalized");
-            return;
-          }
-
-          // Receipt exists but BLS cert not yet present — kick off finalization.
-          setFinalizationStatus("pending");
-          void finalizeReceiptInBackground(receiptId);
-        } else {
-          // Receipt not yet in store — kick off finalization.
-          setFinalizationStatus("pending");
-          void finalizeReceiptInBackground(receiptId);
-        }
+        setFinalizationStatus("submitting");
+        void runAutomaticFinalization(receiptId);
       } else {
         setActionError(getError(result as any));
       }
@@ -543,7 +600,7 @@ function App() {
             </nav>
             {/* FIX 5: was a nested <main>, changed to <div> */}
             <div className="main-content">
-              {!cvdrData && (
+              {!cvdrData && finalizationStatus === "idle" && (
                 <div className="card">
                   <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
                   <p className="muted">
@@ -556,14 +613,24 @@ function App() {
                   </div>
                 </div>
               )}
-              {finalizationStatus === "finalized" && (
-                <p className="muted">Finalized</p>
-              )}
-              {finalizationStatus === "pending" && (
+              {(finalizationStatus === "submitting" ||
+                finalizationStatus === "polling" ||
+                finalizationStatus === "retrying") && (
                 <div className="card">
                   <p style={{ margin: 0, fontWeight: 600 }}>
-                    Deletion recorded — finalization is completed by the operator's
-                    verification tooling and will appear here once finalized.
+                    Deletion in progress. Please keep this window open while your deletion
+                    receipt is being finalised.
+                  </p>
+                  <p className="muted" style={{ marginBottom: 0 }}>
+                    Profile deleted, receipt being finalised.
+                  </p>
+                </div>
+              )}
+              {finalizationStatus === "delayed" && (
+                <div className="card">
+                  <p style={{ margin: 0, fontWeight: 600 }}>
+                    Your profile was deleted, but receipt finalisation is delayed.
+                    It will be retried automatically on your next visit.
                   </p>
                 </div>
               )}

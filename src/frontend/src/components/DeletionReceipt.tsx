@@ -4,7 +4,7 @@ export interface CvdrData {
   protocol_version: string;
   receipt_id: string;
   canister_id: string;
-  record_id?: string | null;
+  record_id: string;
   pre_state_hash: string;
   post_state_hash: string;
   tombstone_hash: string;
@@ -15,12 +15,13 @@ export interface CvdrData {
   deletion_seq: bigint;
   bls_certificate?: Array<number> | Uint8Array | null;
   trust_root_key_id: string;
+  module_hash_certificate?: Array<number> | Uint8Array | null;
 }
 
 interface DeletionReceiptProps {
   receipt: CvdrData;
   profileCanisterId: string;
-  finalizationStatus?: "idle" | "finalizing" | "finalized" | "pending";
+  finalizationStatus?: "idle" | "submitting" | "polling" | "retrying" | "finalized" | "delayed";
   onDone: () => void;
 }
 
@@ -50,7 +51,7 @@ export default function DeletionReceipt({
     protocol_version: receipt.protocol_version,
     receipt_id: receipt.receipt_id,
     canister_id: receipt.canister_id,
-    record_id: receipt.record_id ?? "",
+    record_id: receipt.record_id,
     pre_state_hash: receipt.pre_state_hash,
     post_state_hash: receipt.post_state_hash,
     tombstone_hash: receipt.tombstone_hash,
@@ -61,7 +62,9 @@ export default function DeletionReceipt({
     deletion_seq: receipt.deletion_seq.toString(),
     bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
     trust_root_key_id: receipt.trust_root_key_id,
-    timestamp_iso: formatTimestamp(receipt.timestamp),
+    module_hash_certificate: receipt.module_hash_certificate
+      ? bytesToHex(receipt.module_hash_certificate)
+      : null,
   };
 
   const handleDownload = () => {
@@ -95,10 +98,12 @@ export default function DeletionReceipt({
   };
 
   const blsStatusText =
-    finalizationStatus === "finalizing"
+    finalizationStatus === "submitting" ||
+    finalizationStatus === "polling" ||
+    finalizationStatus === "retrying"
       ? "Finalization in progress"
-      : finalizationStatus === "pending"
-        ? "Pending finalization"
+      : finalizationStatus === "delayed"
+        ? "Finalization delayed"
         : receipt.bls_certificate
           ? `${Array.from(receipt.bls_certificate).length} bytes`
           : "Not finalized yet";
