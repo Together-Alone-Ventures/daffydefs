@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AuthClient } from "@dfinity/auth-client";
 import { HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
@@ -7,12 +7,16 @@ import {
   createFactoryActor,
   createBoardActor,
   createProfileActor,
+  getAnonymousAgent,
   isOk,
   getError,
   II_URL,
   isLocal,
 } from "./ic/agent";
 import { clearNameCache } from "./ic/resolve";
+import { finalizePendingReceipt, type FinalizeStage } from "./ic/finalize/flow";
+import { isReceiptFinalized, mapReceiptToCvdr } from "./ic/finalize/cvdr";
+import type { GuardReport } from "./ic/finalize/guard";
 import ProfileSetup from "./components/ProfileSetup";
 import ProfileView from "./components/ProfileView";
 import ChallengeFeed from "./components/ChallengeFeed";
@@ -47,20 +51,23 @@ interface ProfileData {
   display_name: string;
 }
 
-type FinalizationStatus = "idle" | "finalizing" | "finalized" | "pending";
+type FinalizationStatus = "idle" | "finalizing" | "finalized" | "pending" | "blocked";
 
-// ============================================================
-// Helper: treat a receipt as finalized if BLS cert is present
-// ============================================================
-
-const isReceiptFinalized = (r: any): boolean =>
-  !!(
-    r &&
-    r.bls_certificate &&
-    r.bls_certificate.length > 0 &&
-    r.trust_root_key_id &&
-    String(r.trust_root_key_id).length > 0
-  );
+/** Map a flow stage onto the coarse status the receipt component renders. */
+function statusForStage(stage: FinalizeStage): FinalizationStatus {
+  switch (stage) {
+    case "finalized":
+      return "finalized";
+    case "guard-blocked":
+      return "blocked";
+    case "idle":
+      return "idle";
+    case "failed":
+      return "pending";
+    default:
+      return "finalizing";
+  }
+}
 
 // ============================================================
 // App Component
@@ -77,6 +84,7 @@ function App() {
   const [cvdrData, setCvdrData] = useState<CvdrData | null>(null);
   const [deletionReceiptId, setDeletionReceiptId] = useState<string | null>(null);
   const [finalizationStatus, setFinalizationStatus] = useState<FinalizationStatus>("idle");
+  const [guardReport, setGuardReport] = useState<GuardReport | null>(null);
 
   // Profile state
   const [profileCanisterId, setProfileCanisterId] = useState<string | null>(null);
@@ -90,55 +98,86 @@ function App() {
   // Navigation state
   const [selectedChallengeId, setSelectedChallengeId] = useState<bigint | null>(null);
 
-  const mapReceiptToCvdr = useCallback((r: any): CvdrData => {
-    const bytesToHex = (bytes: Array<number> | Uint8Array): string =>
-      Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-    const recordIdRaw = r.record_id && r.record_id.length > 0 ? r.record_id : null;
-    return {
-      protocol_version: r.protocol_version,
-      receipt_id: r.receipt_id,
-      canister_id: r.canister_id.toText(),
-      record_id: recordIdRaw ? bytesToHex(recordIdRaw) : "",
-      pre_state_hash: r.pre_state_hash,
-      post_state_hash: r.post_state_hash,
-      tombstone_hash: r.tombstone_hash,
-      deletion_event_hash: r.deletion_event_hash,
-      certified_commitment: r.certified_commitment,
-      module_hash: r.module_hash,
-      timestamp: r.timestamp,
-      deletion_seq: r.deletion_seq,
-      bls_certificate:
-        r.bls_certificate && r.bls_certificate.length > 0 ? r.bls_certificate[0] : null,
-      trust_root_key_id: r.trust_root_key_id,
+  // Mount-race safety: every async finalisation result is dropped if the
+  // component has since unmounted, and the in-flight controller is aborted so a
+  // half-finished run does not keep polling after the user has navigated away.
+  const mountedRef = useRef(true);
+  const finalizeAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      finalizeAbortRef.current?.abort();
     };
   }, []);
 
-  const finalizeReceiptInBackground = useCallback(async (receiptId: string) => {
-    if (!profileActor || !profileCanisterId) return;
+  /**
+   * Run the browser finalisation path for a pending receipt.
+   *
+   * Deliberately never triggers Phase A. Called both immediately after a
+   * deletion and, on a later visit, as lazy repair — in the repair case the user
+   * must not be asked to re-authorise a deletion they already authorised.
+   *
+   * Double submission is prevented inside finalizePendingReceipt, which
+   * deduplicates on canister+receipt and re-reads the receipt before every
+   * submit attempt.
+   */
+  const runFinalization = useCallback(
+    async (receiptId?: string) => {
+      if (!profileActor || !factoryActor || !profileCanisterId) return;
 
-    // FIX 3: Short-circuit if receipt is already finalized — prevents
-    // a second background call from driving status back to "pending".
-    try {
-      const existingReceipt = await profileActor.mktd_get_receipt(receiptId);
-      const existing = existingReceipt && existingReceipt.length > 0 ? existingReceipt[0] : null;
-      if (existing && isReceiptFinalized(existing)) {
-        setCvdrData(mapReceiptToCvdr(existing));
-        setFinalizationStatus("finalized");
-        return;
+      finalizeAbortRef.current?.abort();
+      const controller = new AbortController();
+      finalizeAbortRef.current = controller;
+
+      setFinalizationStatus("finalizing");
+
+      try {
+        const anonAgent = await getAnonymousAgent();
+        const outcome = await finalizePendingReceipt({
+          profileActor,
+          factoryActor,
+          anonAgent,
+          profileCanisterId,
+          receiptId,
+          signal: controller.signal,
+          onStage: (stage) => {
+            if (!mountedRef.current || controller.signal.aborted) return;
+            setFinalizationStatus(statusForStage(stage));
+          },
+        });
+
+        if (!mountedRef.current || controller.signal.aborted) return;
+
+        if (outcome.receipt) setCvdrData(outcome.receipt);
+        setGuardReport(outcome.guard);
+
+        switch (outcome.status) {
+          case "finalized":
+          case "already-finalized":
+            setFinalizationStatus("finalized");
+            break;
+          case "guard-blocked":
+            setFinalizationStatus("blocked");
+            break;
+          case "not-pending":
+            setFinalizationStatus("idle");
+            break;
+          default:
+            setFinalizationStatus("pending");
+            if (outcome.error) {
+              console.warn("[finalize] did not complete:", outcome.error);
+            }
+        }
+      } catch (e) {
+        if (!mountedRef.current || controller.signal.aborted) return;
+        setFinalizationStatus("pending");
+        console.warn("[finalize] error:", e);
       }
-    } catch {
-      // continue into normal retry path
-    }
-
-    // Phase C (finalization) is NOT performed in the browser. Under Plan v2.1 A4
-    // the browser may TRIGGER Phase A (deletion) but never SUBMITS Phase C: the
-    // finalize inputs include a subnet read_state certificate over
-    // /canister/<id>/module_hash that is fetched off-canister by the operator's
-    // verification tooling, which the browser cannot produce. This path is
-    // therefore display-only — "finalized" if the operator has already finalized
-    // (checked above), otherwise the transitional pending-finalization state.
-    setFinalizationStatus("pending");
-  }, [mapReceiptToCvdr, profileActor, profileCanisterId]);
+    },
+    [factoryActor, profileActor, profileCanisterId]
+  );
 
   // ----------------------------------------------------------
   // Initialize auth client on mount
@@ -168,33 +207,40 @@ function App() {
     });
   }, []);
 
+  // ----------------------------------------------------------
+  // Lazy repair
+  // ----------------------------------------------------------
+  //
+  // On any authenticated visit, if the canister reports a pending finalisation,
+  // resume it. This is what makes a tab-close mid-deletion recoverable: Phase A
+  // already happened and is durable, so the repair only ever completes B→C.
+  // No deletion is re-triggered and no re-authorisation is requested.
+  //
+  // The effect deliberately does not depend on runFinalization — re-firing on
+  // every render used to launch a second finalisation that raced the first.
+  // Double-submit safety no longer relies on that omission (finalizePendingReceipt
+  // deduplicates), but the effect stays narrow so repair runs once per session.
   useEffect(() => {
-    if (profileActor && profileCanisterId) {
-      const recoverPendingFinalization = async () => {
-        try {
-          const isPending = await profileActor.mktd_is_pending();
-          if (!isPending) return;
+    if (!profileActor || !profileCanisterId || !factoryActor) return;
 
-          const certResult = await profileActor.mktd_get_certificate();
-          const cert = certResult && certResult.length > 0 ? certResult[0] : null;
-          if (cert?.receipt_id) {
-            void finalizeReceiptInBackground(cert.receipt_id);
-          } else {
-            setFinalizationStatus("pending");
-          }
-        } catch {
-          setFinalizationStatus("pending");
-        }
-      };
+    let cancelled = false;
+    const repairIfPending = async () => {
+      try {
+        const isPending = await profileActor.mktd_is_pending();
+        if (cancelled || !isPending) return;
+        setScreen("deletion-receipt");
+        await runFinalization();
+      } catch {
+        if (!cancelled) setFinalizationStatus("pending");
+      }
+    };
 
-      void recoverPendingFinalization();
-    }
-    // NOTE: finalizeReceiptInBackground intentionally omitted from deps here.
-    // Including it caused the effect to re-fire on every render during the
-    // deletion flow, launching a second background finalization that raced
-    // the first and drove status back to "pending".
+    void repairIfPending();
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileActor, profileCanisterId]);
+  }, [profileActor, profileCanisterId, factoryActor]);
 
   // ----------------------------------------------------------
   // Post-authentication setup
@@ -304,6 +350,7 @@ function App() {
     setFactoryActor(null);
     setSelectedChallengeId(null);
     setCvdrData(null);
+    setGuardReport(null);
     setDeletionReceiptId(null);
     setFinalizationStatus("idle");
 
@@ -356,53 +403,53 @@ function App() {
 
   const handleDeleteProfile = async () => {
     if (!profileActor || !profileCanisterId) return;
+    // Double-submit protection at the UI edge; the flow module enforces it again
+    // at the call layer, which is what survives a reload rather than a re-render.
+    if (actionLoading) return;
+
     setActionLoading(true);
     setActionError(null);
     setFinalizationStatus("idle");
     setCvdrData(null);
+    setGuardReport(null);
     setDeletionReceiptId(null);
 
     try {
+      // Phase A — the only place a deletion is ever triggered.
       const result = await profileActor.delete_profile();
-      console.info("[delete-flow] delete_profile raw result", result);
-      if (isOk(result as any)) {
-        const receiptIdRaw = (result as any).Ok;
-        if (typeof receiptIdRaw !== "string" || receiptIdRaw.length === 0) {
-          setActionError("Delete succeeded but returned an invalid receipt ID");
-          return;
-        }
+      if (!isOk(result as any)) {
+        setActionError(getError(result as any));
+        return;
+      }
 
-        const receiptId = receiptIdRaw;
-        console.info("[delete-flow] extracted receiptId", receiptId);
-        setDeletionReceiptId(receiptId);
-        setScreen("deletion-receipt");
+      const receiptId = (result as any).Ok;
+      if (typeof receiptId !== "string" || receiptId.length === 0) {
+        setActionError("Delete succeeded but returned an invalid receipt ID");
+        return;
+      }
 
-        // FIX 1 + FIX 2: Only launch background finalization if the receipt
-        // is not already finalized. If it is, set "finalized" immediately and
-        // return — do not hand off to the background function at all.
+      setDeletionReceiptId(receiptId);
+      setScreen("deletion-receipt");
+
+      // Show whatever the receipt says immediately, so the user has their
+      // hashes even if finalisation then stalls.
+      try {
         const receiptResult = await profileActor.mktd_get_receipt(receiptId);
-        console.info("[delete-flow] initial mktd_get_receipt raw result", receiptResult);
-
-        if (receiptResult && receiptResult.length > 0 && receiptResult[0]) {
-          const receipt = receiptResult[0];
+        const receipt =
+          receiptResult && receiptResult.length > 0 ? receiptResult[0] : null;
+        if (receipt) {
           setCvdrData(mapReceiptToCvdr(receipt));
-
           if (isReceiptFinalized(receipt)) {
             setFinalizationStatus("finalized");
             return;
           }
-
-          // Receipt exists but BLS cert not yet present — kick off finalization.
-          setFinalizationStatus("pending");
-          void finalizeReceiptInBackground(receiptId);
-        } else {
-          // Receipt not yet in store — kick off finalization.
-          setFinalizationStatus("pending");
-          void finalizeReceiptInBackground(receiptId);
         }
-      } else {
-        setActionError(getError(result as any));
+      } catch {
+        // Non-fatal: finalisation below re-reads the receipt anyway.
       }
+
+      // Phase B → read_state → guard → Phase C.
+      await runFinalization(receiptId);
     } catch (e: any) {
       setActionError(`Delete failed: ${e.message || e}`);
     } finally {
@@ -556,15 +603,26 @@ function App() {
                   </div>
                 </div>
               )}
+              {finalizationStatus === "finalizing" && (
+                <p className="muted">Finalizing — verifying certificates...</p>
+              )}
               {finalizationStatus === "finalized" && (
                 <p className="muted">Finalized</p>
               )}
               {finalizationStatus === "pending" && (
                 <div className="card">
                   <p style={{ margin: 0, fontWeight: 600 }}>
-                    Deletion recorded — finalization is completed by the operator's
-                    verification tooling and will appear here once finalized.
+                    Deletion recorded, finalization incomplete. It will resume
+                    automatically next time you sign in — your receipt is safe.
                   </p>
+                  <div className="button-row" style={{ marginTop: "0.75rem" }}>
+                    <button
+                      className="button button-secondary"
+                      onClick={() => void runFinalization(deletionReceiptId ?? undefined)}
+                    >
+                      Retry finalization
+                    </button>
+                  </div>
                 </div>
               )}
               {cvdrData && (
@@ -572,11 +630,13 @@ function App() {
                   receipt={cvdrData}
                   profileCanisterId={profileCanisterId}
                   finalizationStatus={finalizationStatus}
+                  guard={guardReport}
                   onDone={() => {
                     setProfileData(null);
                     setProfileActor(null);
                     setProfileCanisterId(null);
                     setCvdrData(null);
+                    setGuardReport(null);
                     setDeletionReceiptId(null);
                     setFinalizationStatus("idle");
                     setScreen("profile-deleted");

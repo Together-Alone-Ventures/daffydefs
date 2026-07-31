@@ -39,6 +39,24 @@ export function getAgent(): HttpAgent | null {
   return _agent;
 }
 
+let _anonAgent: HttpAgent | null = null;
+
+/**
+ * Anonymous agent, used for `read_state` of public subnet state such as
+ * /canister/<id>/module_hash. Kept separate from the authenticated agent on
+ * purpose: reading a module hash needs no delegated authority, so it should not
+ * borrow the user's.
+ */
+export async function getAnonymousAgent(): Promise<HttpAgent> {
+  if (_anonAgent) return _anonAgent;
+  const agent = await HttpAgent.create({ host });
+  if (isLocal) {
+    await agent.fetchRootKey();
+  }
+  _anonAgent = agent;
+  return agent;
+}
+
 // ============================================================
 // Actor factories
 // ============================================================
