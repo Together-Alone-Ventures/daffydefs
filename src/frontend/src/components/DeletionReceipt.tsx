@@ -57,16 +57,36 @@ export default function DeletionReceipt({
     return "Not finalized yet";
   };
 
+  // Deletion-done language is reserved for the Finalized state. Until the
+  // receipt-first confirmation lands, the receipt on screen is still being
+  // assembled and must not be presented as a completed artefact.
+  const isFinalized = finalizationStatus === "finalized";
+
+  const heading = isFinalized
+    ? "Deletion complete — receipt ready"
+    : finalizationStatus === "pending"
+      ? "Still finalising"
+      : finalizationStatus === "blocked"
+        ? "Finalisation withheld"
+        : "Preparing your Deletion Receipt";
+
+  const intro = isFinalized
+    ? "Your personal data has been cryptographically tombstoned. This Cryptographically Verifiable Deletion Receipt (CVDR) is your proof that the deletion took place. You can independently verify it at any time using the hashes below and the ICP subnet's public key."
+    : finalizationStatus === "pending"
+      ? "Your deletion has been recorded on-chain and the values below are final. The certificates that complete the receipt are still being attached — this will finish automatically next time you sign in."
+      : "Your deletion has been recorded on-chain. The certificates that complete the receipt are being collected and verified now.";
+
   return (
     <div className="card">
-      <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
+      <h2 style={isFinalized ? { color: "#4ade80" } : undefined}>{heading}</h2>
 
-      <p style={{ marginBottom: "1rem", color: "#94a3b8" }}>
-        Your personal data has been cryptographically tombstoned. This
-        Cryptographically Verifiable Deletion Receipt (CVDR) is your proof that
-        the deletion took place. You can independently verify it at any time
-        using the hashes below and the ICP subnet's public key.
-      </p>
+      {!isFinalized && finalizationStatus !== "pending" && (
+        <p style={{ margin: "0 0 1rem", fontWeight: 600 }}>
+          Please don't close this window.
+        </p>
+      )}
+
+      <p style={{ marginBottom: "1rem", color: "#94a3b8" }}>{intro}</p>
 
       {/* Export completeness — a finalized v4 receipt carries BOTH certificates.
           Downloading one that is missing either would verify as unattested. */}
@@ -196,21 +216,45 @@ export default function DeletionReceipt({
         </div>
       </div>
 
+      {/* Export affordances are withheld until Finalized. A receipt exported
+          mid-flight is missing a certificate and would not verify as attested,
+          so offering it as a normal download invites a worthless file being
+          kept as proof. The pending (lazy-repair) state keeps a secondary,
+          explicitly-labelled escape hatch; every other state offers none.
+          Copy is gated identically — it emits the same bytes as Download. */}
       <div className="button-row" style={{ marginTop: "1.5rem" }}>
-        <button className="button button-primary" onClick={() => downloadCvdr(receipt)}>
-          Download Receipt (JSON)
-        </button>
-        <button className="button button-secondary" onClick={handleCopy}>
-          {copied ? "Copied!" : "Copy to Clipboard"}
-        </button>
+        {isFinalized && (
+          <>
+            <button className="button button-primary" onClick={() => downloadCvdr(receipt)}>
+              Download Receipt (JSON)
+            </button>
+            <button className="button button-secondary" onClick={handleCopy}>
+              {copied ? "Copied!" : "Copy to Clipboard"}
+            </button>
+          </>
+        )}
+        {finalizationStatus === "pending" && (
+          <button className="button button-secondary" onClick={() => downloadCvdr(receipt)}>
+            Download incomplete copy
+          </button>
+        )}
         <button className="button button-secondary" onClick={onDone}>
           Done
         </button>
       </div>
 
-      <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.5rem" }}>
-        Saves as {cvdrFileName(receipt)}
-      </p>
+      {isFinalized && (
+        <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.5rem" }}>
+          Saves as {cvdrFileName(receipt)}
+        </p>
+      )}
+      {finalizationStatus === "pending" && (
+        <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.5rem" }}>
+          This copy is incomplete — it is missing a certificate and will not
+          verify as attested. Sign in again to finish the receipt, then download
+          the complete file.
+        </p>
+      )}
     </div>
   );
 }

@@ -589,42 +589,52 @@ function App() {
         {/* Deletion Receipt */}
         {screen === "deletion-receipt" && profileCanisterId && (
           <>
+            {/* Deletion-done language is withheld until the receipt-first
+                confirmation reports Finalized. While A→C is in flight the user
+                is told work is still happening, not that it is over. */}
             <nav className="top-bar">
-              <span className="username">Account Deleted</span>
+              <span className="username">
+                {finalizationStatus === "finalized"
+                  ? "Account Deleted"
+                  : "Finalising Deletion"}
+              </span>
             </nav>
             {/* FIX 5: was a nested <main>, changed to <div> */}
             <div className="main-content">
               {!cvdrData && (
                 <div className="card">
-                  <h2 style={{ color: "#4ade80" }}>Profile Deleted — Deletion Receipt</h2>
+                  <h2>Preparing your Deletion Receipt</h2>
+                  <p style={{ margin: 0, fontWeight: 600 }}>
+                    Please don't close this window.
+                  </p>
                   <p className="muted">
-                    Loading receipt
+                    Collecting and verifying certificates
                     {deletionReceiptId ? ` (${deletionReceiptId})` : ""}...
                   </p>
-                  <div className="profile-field">
-                    <span className="field-label">BLS Certificate</span>
-                    <span className="field-value mono">Loading...</span>
-                  </div>
                 </div>
               )}
               {finalizationStatus === "finalizing" && (
-                <p className="muted">Finalizing — verifying certificates...</p>
+                <div className="card">
+                  <p style={{ margin: 0, fontWeight: 600 }}>
+                    Preparing your Deletion Receipt — please don't close this window.
+                  </p>
+                </div>
               )}
               {finalizationStatus === "finalized" && (
-                <p className="muted">Finalized</p>
+                <p className="muted">Deletion complete — receipt ready.</p>
               )}
               {finalizationStatus === "pending" && (
                 <div className="card">
                   <p style={{ margin: 0, fontWeight: 600 }}>
-                    Deletion recorded, finalization incomplete. It will resume
-                    automatically next time you sign in — your receipt is safe.
+                    Still finalising — you can safely close this window; your
+                    receipt will complete next time you sign in.
                   </p>
                   <div className="button-row" style={{ marginTop: "0.75rem" }}>
                     <button
                       className="button button-secondary"
                       onClick={() => void runFinalization(deletionReceiptId ?? undefined)}
                     >
-                      Retry finalization
+                      Try again now
                     </button>
                   </div>
                 </div>
