@@ -213,8 +213,12 @@ function App() {
   //
   // On any authenticated visit, if the canister reports a pending finalisation,
   // resume it. This is what makes a tab-close mid-deletion recoverable: Phase A
-  // already happened and is durable, so the repair only ever completes B→C.
+  // already happened and is durable, so the repair only ever completes B→C,
+  // through mktd_is_pending / mktd_get_certificate / mktd_get_receipt only.
   // No deletion is re-triggered and no re-authorisation is requested.
+  //
+  // It never unmaps — see the coded invariant in ic/factory.did.ts. Unmapping a
+  // still-pending receipt would strand it permanently unfinalisable.
   //
   // The effect deliberately does not depend on runFinalization — re-firing on
   // every render used to launch a second finalisation that raced the first.

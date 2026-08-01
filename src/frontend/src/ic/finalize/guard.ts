@@ -106,7 +106,13 @@ export interface GuardInputs {
   warnDelayThresholdSecs?: number;
 }
 
-function guardStatus(ok: boolean, delayExceeded: boolean): GuardStatus {
+/**
+ * Status ladder: failure dominates delay (helper/src/main.rs:300-308).
+ *
+ * Exported for the vector replay in guard.vectors.test.ts — visibility only,
+ * the body is unchanged.
+ */
+export function guardStatus(ok: boolean, delayExceeded: boolean): GuardStatus {
   if (!ok) return "FAIL";
   if (delayExceeded) return "DELAY_EXCEEDED";
   return "PASS";
