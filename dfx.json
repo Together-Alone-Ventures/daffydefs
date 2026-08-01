@@ -41,8 +41,7 @@
     },
     "frontend": {
       "type": "assets",
-      "source": ["src/frontend/dist"],
-      "dependencies": ["bulletin_board", "profile_factory"]
+      "source": ["src/frontend/dist"]
     }
   },
   "defaults": {
