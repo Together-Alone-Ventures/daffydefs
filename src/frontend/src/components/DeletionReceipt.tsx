@@ -21,7 +21,14 @@ export interface CvdrData {
 interface DeletionReceiptProps {
   receipt: CvdrData;
   profileCanisterId: string;
-  finalizationStatus?: "idle" | "submitting" | "polling" | "retrying" | "finalized" | "delayed";
+  finalizationStatus?:
+    | "idle"
+    | "submitting"
+    | "verifying"
+    | "finalizing"
+    | "retrying"
+    | "finalized"
+    | "delayed";
   onDone: () => void;
 }
 
@@ -99,7 +106,8 @@ export default function DeletionReceipt({
 
   const blsStatusText =
     finalizationStatus === "submitting" ||
-    finalizationStatus === "polling" ||
+    finalizationStatus === "verifying" ||
+    finalizationStatus === "finalizing" ||
     finalizationStatus === "retrying"
       ? "Finalization in progress"
       : finalizationStatus === "delayed"

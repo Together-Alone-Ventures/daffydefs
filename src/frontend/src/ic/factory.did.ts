@@ -19,6 +19,18 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
 
   return IDL.Service({
     delete_profile_canister: IDL.Func([], [ResultNull], []),
+
+    // DELIBERATELY ABSENT: unmap_deleted_profile.
+    // Unmapping removes the principal → canister entry (profile_factory:513-529)
+    // with NO pending-receipt check. Do it while a receipt is still pending and
+    // the receipt becomes permanently unfinalisable: get_or_create then mints a
+    // FRESH canister (:192-196) and finalize_profile_receipt's is_managed check
+    // (:555-562) can never match the old one again.
+    // CODED INVARIANT: if this is ever added, it may only be called after a
+    // receipt-first confirmation that the receipt is finalized with BOTH
+    // certificate fields present — use isReceiptFinalized() from
+    // ../finalize/browserFinalize. Lazy repair must never unmap while pending.
+
     get_cycle_balance: IDL.Func([], [IDL.Nat], ["query"]),
     get_or_create_profile_canister: IDL.Func([], [ResultPrincipal], []),
     resolve: IDL.Func([IDL.Principal], [ResultPrincipal], ["query"]),

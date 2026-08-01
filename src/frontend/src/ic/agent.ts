@@ -39,6 +39,17 @@ export function getAgent(): HttpAgent | null {
   return _agent;
 }
 
+/// Anonymous agent for public certified reads (the module_hash read_state used
+/// by the pre-finalize guard). Deliberately NOT the user's II agent: the module
+/// hash is public state and the read must not depend on a delegation.
+export async function createAnonymousAgent(): Promise<HttpAgent> {
+  const agent = await HttpAgent.create({ host });
+  if (isLocal) {
+    await agent.fetchRootKey();
+  }
+  return agent;
+}
+
 // ============================================================
 // Actor factories
 // ============================================================

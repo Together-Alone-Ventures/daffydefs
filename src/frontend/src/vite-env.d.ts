@@ -6,6 +6,5 @@ declare namespace NodeJS {
     CANISTER_ID_PROFILE_FACTORY: string;
     CANISTER_ID_INTERNET_IDENTITY: string;
     DFX_NETWORK: string;
-    FINALIZER_BASE_URL: string;
   }
 }

@@ -4,6 +4,7 @@ import { HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
 import {
   createAgent,
+  createAnonymousAgent,
   createFactoryActor,
   createBoardActor,
   createProfileActor,
@@ -20,7 +21,7 @@ import CreateChallenge from "./components/CreateChallenge";
 import ChallengeDetail from "./components/ChallengeDetail";
 import DeletionReceipt from "./components/DeletionReceipt";
 import { CvdrData } from "./components/DeletionReceipt";
-import { getFinalization, submitFinalization } from "./finalizer";
+import { runBrowserFinalization, type FinalizationStatus } from "./finalize/browserFinalize";
 import "./App.css";
 
 // ============================================================
@@ -47,34 +48,6 @@ interface ProfileData {
   gender: string;
   display_name: string;
 }
-
-type FinalizationStatus =
-  | "idle"
-  | "submitting"
-  | "polling"
-  | "retrying"
-  | "finalized"
-  | "delayed";
-
-const sleep = (milliseconds: number) =>
-  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
-
-const FINALIZATION_ATTEMPT_DEADLINE_MS = 3 * 60 * 1_000;
-
-// ============================================================
-// Helper: finalized canister receipts carry both certificates.
-// ============================================================
-
-const isReceiptFinalized = (r: any): boolean =>
-  !!(
-    r &&
-    r.bls_certificate &&
-    r.bls_certificate.length > 0 &&
-    r.module_hash_certificate &&
-    r.module_hash_certificate.length > 0 &&
-    r.trust_root_key_id &&
-    String(r.trust_root_key_id).length > 0
-  );
 
 // ============================================================
 // App Component
@@ -132,74 +105,34 @@ function App() {
     };
   }, []);
 
+  // Browser finalisation: Phase B query → anonymous read_state → G1–G5b guard
+  // → 4-arg factory finalize via the user's II agent → receipt-first
+  // confirmation. Bounded retry and double-submit protection live in
+  // runBrowserFinalization; this callback only wires state.
   const runAutomaticFinalization = useCallback(async (receiptId: string) => {
-    if (!profileActor || !profileCanisterId) return;
-
-    const loadFinalizedCanisterReceipt = async () => {
-      const result = await profileActor.mktd_get_receipt(receiptId);
-      const receipt = result && result.length > 0 ? result[0] : null;
-      if (!receipt || !isReceiptFinalized(receipt)) {
-        throw new Error("Finaliser completed but canister receipt is not finalized");
-      }
-      setCvdrData(mapReceiptToCvdr(receipt));
-      setFinalizationStatus("finalized");
-    };
-
-    const poll = async (jobId: string, deadline: number, signal: AbortSignal) => {
-      const backoffMs = [1_000, 1_500, 2_500, 4_000, 6_000, 10_000];
-      let attempt = 0;
-      while (Date.now() < deadline) {
-        const remainingMs = deadline - Date.now();
-        const delayMs = Math.min(
-          backoffMs[Math.min(attempt, backoffMs.length - 1)],
-          remainingMs,
-        );
-        await sleep(delayMs);
-        if (Date.now() >= deadline) return "deadline";
-
-        const job = await getFinalization(jobId, signal);
-        if (job.status === "finalized") {
-          await loadFinalizedCanisterReceipt();
-          return "finalized";
-        }
-        if (job.status === "failed") return "failed";
-        setFinalizationStatus("polling");
-        attempt += 1;
-      }
-      return "deadline";
-    };
-
-    for (let retry = 0; retry <= 2; retry += 1) {
-      const deadline = Date.now() + FINALIZATION_ATTEMPT_DEADLINE_MS;
-      const controller = new AbortController();
-      const deadlineTimer = window.setTimeout(
-        () => controller.abort(),
-        FINALIZATION_ATTEMPT_DEADLINE_MS,
-      );
-      try {
-        setFinalizationStatus(retry === 0 ? "submitting" : "retrying");
-        if (retry > 0) await sleep(2_000 * retry);
-        const job = await submitFinalization(
-          profileCanisterId,
-          receiptId,
-          controller.signal,
-        );
-        if (job.status === "finalized") {
-          await loadFinalizedCanisterReceipt();
-          return;
-        }
-        if (
-          job.status !== "failed" &&
-          (await poll(job.job_id, deadline, controller.signal)) === "finalized"
-        ) return;
-      } catch {
-        // Network/service errors use the same bounded, idempotent resubmission path.
-      } finally {
-        window.clearTimeout(deadlineTimer);
-      }
+    if (!profileActor || !factoryActor || !profileCanisterId) {
+      // No actor means nothing can be submitted; surface the honest state
+      // rather than leaving the UI stuck on "submitting" forever.
+      setFinalizationStatus("delayed");
+      return;
     }
-    setFinalizationStatus("delayed");
-  }, [mapReceiptToCvdr, profileActor, profileCanisterId]);
+
+    try {
+      const anonymousAgent = await createAnonymousAgent();
+      await runBrowserFinalization({
+        profileActor,
+        factoryActor,
+        anonymousAgent,
+        profileCanisterId,
+        receiptId,
+        onStatus: setFinalizationStatus,
+        onFinalized: (receipt) => setCvdrData(mapReceiptToCvdr(receipt)),
+      });
+    } catch (e) {
+      console.warn("[finalize] finalisation could not run:", e);
+      setFinalizationStatus("delayed");
+    }
+  }, [mapReceiptToCvdr, profileActor, factoryActor, profileCanisterId]);
 
   // ----------------------------------------------------------
   // Initialize auth client on mount
@@ -229,8 +162,16 @@ function App() {
     });
   }, []);
 
+  // Lazy repair on authenticated app entry: any receipt left pending by an
+  // earlier session is picked up here and finalised, through
+  // mktd_is_pending / mktd_get_certificate / mktd_get_receipt only. It never
+  // unmaps — see the invariant note in ic/factory.did.ts.
   useEffect(() => {
-    if (profileActor && profileCanisterId) {
+    if (profileActor && factoryActor && profileCanisterId) {
+      // Synchronous, before any await: React StrictMode invokes this effect
+      // twice in development, and the second invocation must see that recovery
+      // already started for this canister. Per canister ID, so a different
+      // canister still gets its own recovery.
       if (recoveryStartedForCanisterRef.current === profileCanisterId) return;
       recoveryStartedForCanisterRef.current = profileCanisterId;
 
@@ -261,9 +202,11 @@ function App() {
     // NOTE: runAutomaticFinalization intentionally omitted from deps here.
     // Including it caused the effect to re-fire on every render during the
     // deletion flow, launching a second background finalization that raced
-    // the first and drove status back to "pending".
+    // the first and drove status back to "pending". The per-canister ref above
+    // is the primary guard; runBrowserFinalization's in-flight map is the
+    // backstop if anything ever slips past it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileActor, profileCanisterId]);
+  }, [profileActor, factoryActor, profileCanisterId]);
 
   // ----------------------------------------------------------
   // Post-authentication setup
@@ -614,7 +557,8 @@ function App() {
                 </div>
               )}
               {(finalizationStatus === "submitting" ||
-                finalizationStatus === "polling" ||
+                finalizationStatus === "verifying" ||
+                finalizationStatus === "finalizing" ||
                 finalizationStatus === "retrying") && (
                 <div className="card">
                   <p style={{ margin: 0, fontWeight: 600 }}>
