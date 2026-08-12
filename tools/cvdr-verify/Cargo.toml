@@ -1,0 +1,38 @@
+[package]
+name = "mktd02-verify"
+# Tracks the CVDR-Verify release tag (v0.5.1). Prior to v0.5.1 this field sat at
+# 0.1.0 and the binary exposed no --version; the tag was the only version label.
+version = "0.6.1"
+edition = "2021"
+description = "Standalone V1-V4 verification tool for MKTd02 CVDRs"
+
+# Keep this snapshot as a build boundary independent of the parent product
+# workspace. Its lockfile and zombie-core version are intentionally separate.
+[workspace]
+
+[dependencies]
+# Pin by commit hash during active development.
+# Switch to tag = "zombie-core-vX.Y.Z" for releases.
+# NAMING CONVENTION: always write "zombie-core vX.Y.Z" when referencing
+# this alongside MKTd02 version strings — never just "v0.x.y".
+# Pinned to zombie-core-v0.4.1 (crate 0.4.1; tag == crate version). v0.4.0 added
+# the mktd02-v4 schema (module_hash_certificate, ProtocolVersion::V4, protocol-
+# aware ReceiptState); v0.4.1 added MAX_FINALIZATION_DELAY_NS (normative, G
+# ruling 15 Jul 2026). No hash-preimage / receipt-id / golden change across the
+# bump — receipt_id still uses TAG_RECEIPT_V3 for v3 and v4.
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.4.1" }
+ic-agent = "0.39"
+candid = "0.10"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_cbor = "0.11"
+ciborium = "0.2"
+serde_json = "1"
+ic-verify-bls-signature = "0.5"
+# Portable frozen-package artifact: byte fields accept hex or base64 (already
+# present in the lock as a transitive dep; pinned here for the OpenChatZD path).
+base64 = "0.22"

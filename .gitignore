@@ -41,3 +41,7 @@ rollback_artifacts/*.wasm
 # Gate 2 W5 ceremony handoff — operator-held evidence, referenced by path from RELEASES;
 # not committed (durable copies land in CVDR-Verify via W6 with pinned provenance)
 ceremony_handoff_w5_remediated/
+
+# Capsule: snapshot archives are packaging hygiene, never provenance anchors
+releases/CANDIDATE/*.tar.gz
+tools/cvdr-verify/target/

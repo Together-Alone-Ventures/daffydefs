@@ -1,0 +1,12 @@
+[source."git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?tag=mktd02-v0.5.0"]
+git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git"
+tag = "mktd02-v0.5.0"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.4.0"]
+git = "https://github.com/Together-Alone-Ventures/zombie-core"
+tag = "zombie-core-v0.4.0"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
