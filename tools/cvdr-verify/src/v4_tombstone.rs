@@ -29,9 +29,9 @@ impl V4Result {
 
     pub fn summary(&self) -> String {
         if self.passed() {
-            "V4: PASS — tombstone intact, state hash matches".to_string()
+            "INFO — tombstone persistence (diagnostic, non-gating): PASS — tombstone intact, state hash matches".to_string()
         } else {
-            format!("V4: FAIL — {}", self.detail)
+            format!("INFO — tombstone persistence (diagnostic, non-gating): FAIL — {}", self.detail)
         }
     }
 }

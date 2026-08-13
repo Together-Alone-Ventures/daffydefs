@@ -35,3 +35,29 @@ for the TAV git sources and their minimal `vendor/` trees. Public crates continu
 to resolve from crates.io under `--locked`. The verifier's lockfile and TAV
 vendor directory are a separate build boundary and form no part of the
 profile-WASM source identity.
+
+## DaffyDefs verifier presentation and gating delta
+
+V1–V4 are relabelled per the 15 Jul 2026 ruling, including V3-A → V3 attested
+code identity. V4 code provenance is explicitly NOT EVALUATED by this tool and
+is established by the published verification procedure.
+
+Live module corroboration: relabel only; it was already non-gating in v0.6.1.
+Tombstone persistence: behavioural change; it was a hard exit gate in v0.6.1
+and is now diagnostic and non-gating. Consequently, a tombstone-persistence
+failure that previously produced a non-zero process exit status now leaves the
+exit status determined solely by the automated V1, V2, and V3 gates. This applies equally where the informational checks fail for transport reasons — an unreachable canister yields the same non-gating INFO result as a substantive mismatch, so a run that obtained no live evidence at all still exits 0 on the strength of V1, V2 and V3 alone.
+
+The known-benign `verify_offline` and `golden_receipt_v2` dead-code warnings
+were both pre-existing at `ad16f2a` and were verified by CC.
+
+DaffyDefs contains the TAV-specific source required for independent rebuilding.
+Standard public Rust dependencies are resolved from their normal public
+distribution sources using the committed lockfile. Copying the complete public
+dependency ecosystem into the application repository is neither required by
+MKTd02 nor part of the reproducibility claim.
+
+The capsule release commit identifies the repository state as a whole. The
+profile-WASM provenance boundary is the profile source, its TAV dependencies,
+lockfile, toolchain and build recipe. tools/cvdr-verify/ is outside that
+boundary; verifier-only changes never alter profile-WASM source identity.

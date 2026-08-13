@@ -581,7 +581,7 @@ pub(crate) fn verify_certificate_over_certified_data(
 }
 
 // ---------------------------------------------------------------------------
-// V3-A: archived certificate over /canister/<id>/module_hash
+// V3: archived certificate over /canister/<id>/module_hash
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -596,7 +596,7 @@ pub(crate) struct ModuleHashCertOutcome {
 /// hash at **exactly** `/canister/<canister_id>/module_hash`. Same archived-
 /// evidence machinery as [`verify_certificate_over_certified_data`] (BLS
 /// signature → NNS delegation → the delegation's canister range must cover
-/// `canister_id`), so both certificates in a V3-A check validate against the
+/// `canister_id`), so both certificates in a V3 check validate against the
 /// same trust root.
 ///
 /// `lookup_value` is path-agnostic: the exact path is asserted here, so a

@@ -29,21 +29,21 @@ impl V3Result {
     pub fn summary(&self) -> String {
         match &self.classification {
             V3Classification::Match =>
-                "V3: MATCH — canister code unchanged since deletion".to_string(),
+                "INFO — live module corroboration (non-gating): MATCH — canister code unchanged since deletion".to_string(),
             V3Classification::MismatchExpected =>
-                "V3: MISMATCH-EXPECTED — canister upgraded since deletion \
+                "INFO — live module corroboration (non-gating): MISMATCH-EXPECTED — canister upgraded since deletion \
                  (receipt remains valid under prior code version)".to_string(),
             V3Classification::MismatchSuspicious =>
-                "V3: MISMATCH-SUSPICIOUS — receipt has dev zeros, \
+                "INFO — live module corroboration (non-gating): MISMATCH-SUSPICIOUS — receipt has dev zeros, \
                  cannot verify code provenance".to_string(),
             V3Classification::FullMatch =>
-                "V3: FULL MATCH — code provenance confirmed end-to-end \
+                "INFO — live module corroboration (non-gating): FULL MATCH — code provenance confirmed end-to-end \
                  (on-chain == receipt == published)".to_string(),
             V3Classification::MismatchExpectedWithProvenance =>
-                "V3: MISMATCH-EXPECTED with provenance — upgraded since deletion, \
+                "INFO — live module corroboration (non-gating): MISMATCH-EXPECTED with provenance — upgraded since deletion, \
                  but deletion-time code confirmed against published hash".to_string(),
             V3Classification::Failed(e) =>
-                format!("V3: FAILED — {}", e),
+                format!("INFO — live module corroboration (non-gating): FAILED — {}", e),
         }
     }
 }
@@ -169,22 +169,22 @@ impl V3aResult {
     pub fn summary(&self) -> String {
         match &self.classification {
             V3aClassification::SubnetAttested { delta_secs } => format!(
-                "V3-A: SUBNET-ATTESTED — code identity certified by the subnet \
+                "V3 — attested code identity: SUBNET-ATTESTED — code identity certified by the subnet \
                  (finalization delay {delta_secs:.1}s)"
             ),
             V3aClassification::DelayExceeded { delta_secs } => format!(
-                "V3-A: DELAY_EXCEEDED — attested but finalized {delta_secs:.1}s after \
+                "V3 — attested code identity: DELAY_EXCEEDED — attested but finalized {delta_secs:.1}s after \
                  the commitment (> {}s threshold); downgrade, not rejection",
                 MAX_FINALIZATION_DELAY_NS / 1_000_000_000
             ),
             V3aClassification::DeployerDeclared =>
-                "V3-A: DEPLOYER-DECLARED — no subnet-attested module-hash certificate \
+                "V3 — attested code identity: DEPLOYER-DECLARED — no subnet-attested module-hash certificate \
                  (non-attested)".to_string(),
             V3aClassification::Pending =>
-                "V3-A: PENDING — receipt not finalized (neither certificate); \
+                "V3 — attested code identity: PENDING — receipt not finalized (neither certificate); \
                  non-attested, export permitted".to_string(),
             V3aClassification::Failed(e) =>
-                format!("V3-A: FAILED — {e}"),
+                format!("V3 — attested code identity: FAILED — {e}"),
         }
     }
 }
