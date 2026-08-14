@@ -44,4 +44,5 @@ ceremony_handoff_w5_remediated/
 
 # Capsule: snapshot archives are packaging hygiene, never provenance anchors
 releases/CANDIDATE/*.tar.gz
+releases/CANDIDATE/capsule-src.tar
 tools/cvdr-verify/target/

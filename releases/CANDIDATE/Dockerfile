@@ -4,8 +4,7 @@ ARG RUSTUP_VERSION=1.29.0
 ARG RUSTUP_INIT_SHA256=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 ARG RUST_VERSION=1.97.1
 ARG IC_WASM_VERSION=0.11.1
-ARG SOURCE_COMMIT=c0fbb14f885896ed9d34871b108252702dbf8e62
-ARG SOURCE_SNAPSHOT_SHA256=e3c6aa50350adcc411dbc055dbba2ec831d0d3a99ffe5a1b4d4a93bd211dfe12
+ARG SOURCE_COMMIT
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
@@ -13,9 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8 \
     CARGO_HOME=/opt/cargo \
     RUSTUP_HOME=/opt/rustup \
-    PATH=/opt/cargo/bin:/opt/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin:${PATH} \
-    CARGO_INCREMENTAL=0 \
-    SOURCE_DATE_EPOCH=1785665049
+    PATH=/opt/cargo/bin:/opt/rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin:${PATH}
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libssl-dev \
@@ -36,25 +33,20 @@ RUN cargo install ic-wasm --version "${IC_WASM_VERSION}" --locked \
 
 WORKDIR /workspace
 
-# The embedded commit marker is the source identity. The deterministic archive
-# digest verifies packaging transport integrity; the tarball is not provenance.
-COPY source-snapshot.tar.gz /tmp/source-snapshot.tar.gz
-RUN echo "${SOURCE_SNAPSHOT_SHA256}  /tmp/source-snapshot.tar.gz" | sha256sum -c - \
- && tar -xzf /tmp/source-snapshot.tar.gz -C /workspace \
- && rm /tmp/source-snapshot.tar.gz \
- && test "$(cat .baseline-source-commit)" = "${SOURCE_COMMIT}"
-
-ENV RUSTFLAGS="--remap-path-prefix=/workspace=. --remap-path-prefix=/opt/cargo=/cargo"
+# SOURCE_COMMIT identifies the capsule repository state as a whole. The
+# profile-WASM provenance boundary is the profile source, its TAV snapshots,
+# lockfile, toolchain, and build recipe; harness, verifier, and documentation
+# commits change the capsule identity but never that profile-WASM boundary.
+COPY capsule-src.tar /tmp/capsule-src.tar
+RUN test -n "${SOURCE_COMMIT}" \
+ && tar -xf /tmp/capsule-src.tar -C /workspace \
+ && rm /tmp/capsule-src.tar \
+ && archive_commit="$(cat .capsule-commit)" \
+ && printf 'SOURCE_COMMIT=%s\n.capsule-commit=%s\n' "${SOURCE_COMMIT}" "${archive_commit}" \
+ && test "${archive_commit}" = "${SOURCE_COMMIT}"
 
 # Public dependencies are fetched from crates.io under Cargo.lock pins and
 # checksums. TAV git sources resolve from the in-repository vendor directory.
 RUN cargo fetch --locked
 
-RUN cargo build -p profile_canister --target wasm32-unknown-unknown --release --locked \
- && sha256sum target/wasm32-unknown-unknown/release/profile_canister.wasm | tee /pre-shrink.sha256 \
- && mkdir -p wasm_out \
- && ic-wasm target/wasm32-unknown-unknown/release/profile_canister.wasm \
-      -o wasm_out/profile_canister.wasm shrink \
- && sha256sum wasm_out/profile_canister.wasm | tee /module.sha256
-
-# RUN echo "<CANDIDATE_MODULE_SHA256>  wasm_out/profile_canister.wasm" | sha256sum -c -
+RUN bash scripts/build-profile-repro.sh

@@ -9,6 +9,8 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=url.https://tav-private-fetch-forbidden.invalid/.insteadOf
 export GIT_CONFIG_VALUE_0=https://github.com/Together-Alone-Ventures/
 
+export RUSTFLAGS="--remap-path-prefix=$(pwd)=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo ${RUSTFLAGS:-}"
+
 cargo build -p profile_canister --target wasm32-unknown-unknown --release --locked
 sha256sum target/wasm32-unknown-unknown/release/profile_canister.wasm
 
