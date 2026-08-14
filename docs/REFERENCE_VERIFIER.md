@@ -28,7 +28,7 @@ Private-demo target:
 - reported Cargo version: `0.6.1`
 - identity: **CVDR-Verify 0.6.1 + DaffyDefs deltas** described in `VENDORED_SOURCES.md`
 
-**Binary SHA-256: PENDING — add when the convenience executable is placed at the path above.**
+**Binary SHA-256:** `c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f`
 
 This binary is intentionally not described as byte-identical to upstream v0.6.1: the DaffyDefs copy carries the ruled label/presentation/gating delta.
 

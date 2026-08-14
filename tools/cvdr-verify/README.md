@@ -1,3 +1,5 @@
+> **DaffyDefs users:** this file preserves the upstream verifier guide and includes OpenChatZD material and historical labels. For the DaffyDefs demo path, start with [`../../docs/REFERENCE_VERIFIER.md`](../../docs/REFERENCE_VERIFIER.md) and [`../../docs/VERIFICATION_PROCEDURE.md`](../../docs/VERIFICATION_PROCEDURE.md). The exact DaffyDefs delta is recorded in [`../../VENDORED_SOURCES.md`](../../VENDORED_SOURCES.md).
+
 ## Verifier's Guide — OpenChatZD deletion receipts
 
 ### What you are verifying

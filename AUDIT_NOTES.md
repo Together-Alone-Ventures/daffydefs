@@ -22,7 +22,7 @@
 
 ## Remaining items
 
-- Place the Linux x86_64 convenience verifier binary at the documented path and record its SHA-256.
+- Linux x86_64 convenience verifier packaged and validated: 62/62 tests PASS, real mainnet receipt V1–V3 PASS, SHA-256 `c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f`.
 - Controller-window frontend/factory deployment and fresh end-to-end acceptance receipt.
 - Replace candidate/PENDING language at freeze with final observed deployment values.
 - Final naive-verifier walkthrough using only the pack/repo.

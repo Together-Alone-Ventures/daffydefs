@@ -37,7 +37,7 @@ These candidate/PENDING statements are temporary preparation-state text. At demo
 - `vendor/mktd02/` — exact TAV MKTd02 source snapshot required for the product build
 - `vendor/zombie-core/` — exact TAV zombie-core source snapshot required for the product build
 - `tools/cvdr-verify/` — DaffyDefs copy of the reference verifier source
-- `tools/cvdr-verify/bin/linux-x86_64/mktd02-verify` — planned private-demo convenience executable
+- `tools/cvdr-verify/bin/linux-x86_64/mktd02-verify` — included private-demo convenience executable
 - `scripts/build-profile-repro.sh` — canonical profile-WASM reproducibility recipe
 - `releases/CANDIDATE/Dockerfile` — pinned container environment that invokes the same canonical recipe
 - `VENDORED_SOURCES.md` — exact upstream revisions/tree hashes and build-boundary notes
