@@ -46,3 +46,4 @@ ceremony_handoff_w5_remediated/
 releases/CANDIDATE/*.tar.gz
 releases/CANDIDATE/capsule-src.tar
 tools/cvdr-verify/target/
+releases/CANDIDATE/container-output-*/
