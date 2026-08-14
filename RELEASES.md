@@ -1,10 +1,81 @@
 # DaffyDefs — Release Record
 
-> **This record is completed at W5 go-live and is the deploy ceremony's exit artifact.**
-> Fields marked `PENDING` are filled during the ceremony from the values the ceremony
-> itself produces. A `PENDING` field is never pre-filled, estimated, or back-filled from
-> a local build — most importantly `module_hash` (see below). Values below that are
-> already filled are knowable now and were verified against the tree at the stated
+## vNext DaffyDefs Demo Capsule — candidate (14 Aug 2026)
+
+Historical release records below describe the deployment state and claims that applied to those earlier releases. Where an older section says the build was unpinned or attested-only, read that as a statement about that historical release, not this vNext candidate.
+
+### Capsule identity
+
+| Field | Value |
+|---|---|
+| Private branch | `vnext-self-contained-baseline` |
+| Backed-up branch head at audit | `de7ca23f8787917daaac6018cdbdbacd6657f704` |
+| Profile-repro recipe commit | `273906206a0760ca88896524761809e260d996c8` |
+| Profile-WASM candidate SHA-256 | `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9` |
+| Live deployment binding | **PENDING controller-window acceptance** |
+
+The capsule repository commit and the profile-WASM provenance boundary are distinct.
+
+### Profile build boundary
+
+The V4 reproducibility target is:
+
+`wasm_out/profile_canister.wasm`
+
+after `ic-wasm ... shrink`.
+
+### Toolchain and source pins
+
+| Component | Pin |
+|---|---|
+| Rust | `1.97.1` |
+| target | `wasm32-unknown-unknown` |
+| `ic-wasm` | `0.11.1` |
+| product MKTd02 | `mktd02-v0.5.0` / `f0687ad23d1718aeb9231d32642089bd3cc01bc0` |
+| product zombie-core | `zombie-core-v0.4.0` / `f3ab186fd091b9e618dc944e95b518366ac0c43e` |
+| public Rust dependencies | exact resolution/checksums in root `Cargo.lock` |
+
+Canonical recipe:
+
+```bash
+bash scripts/build-profile-repro.sh
+```
+
+Pinned container environment:
+
+```bash
+bash scripts/build-capsule-container.sh
+```
+
+### Reproduction evidence
+
+The profile WASM has been reproduced from the DaffyDefs source in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only capsule with no TAV credentials. These runs produced:
+
+`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+
+No reproduction on physically distinct hardware is claimed. The published build procedure and source material allow any third party to perform an independent rebuild.
+
+### Deployment status
+
+Before the demo capsule is frozen, the approved controller-window acceptance must:
+
+1. deploy/confirm the browser-finalisation frontend required by the current flow;
+2. build the factory using the exact candidate profile WASM;
+3. deploy/upgrade the factory through the approved controller environment;
+4. mint a fresh profile;
+5. delete it through the live flow and download the CVDR JSON without transformation;
+6. verify that JSON directly with the DaffyDefs reference verifier; and
+7. confirm the receipt's certified `module_hash` equals the candidate hash above.
+
+Only after that binding is observed should the live release be described as reproducibly grounded for V4.
+
+---
+
+## Historical release record — W5 / R-b (July 2026)
+
+> **This record was completed at W5 go-live and is the deploy ceremony's exit artifact.**
+> Fields marked `PENDING` were filled during the ceremony from the values the ceremony
+> itself produced. Values below that are already filled were verified against the tree at the stated
 > commit, 17 Jul 2026.
 
 ## Release
@@ -48,12 +119,12 @@ read back certified via `fetch-cert`):
 
 | Hash | Value | Role |
 |---|---|---|
-| **Profile canister Module Hash** (current deployed) | `07421692872c49b1d44d700ab3c30d37d0f9ef53345de0b5de1328a012dd1af8` | subnet-attested code anchor for receipts finalized under the remediation build |
-| **Factory Module Hash** (current deployed) | `ccbfbdfd1ecc74667d09ae76fea1f1dca708b8855ef6526b64a6166d219bb905` | host/factory deployment provenance — **not** a receipt code anchor |
-| **Ceremony receipt attested anchor** (historical) | `85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea` | the code identity the genuine W5 receipt `0eceff7d…` certifies (profile hash at deletion, before the R-b profile upgrade); its V3-A verdict = **SUBNET-ATTESTED** |
+| **Profile canister Module Hash** (current deployed at that release) | `07421692872c49b1d44d700ab3c30d37d0f9ef53345de0b5de1328a012dd1af8` | subnet-attested code anchor for receipts finalized under the remediation build |
+| **Factory Module Hash** (current deployed at that release) | `ccbfbdfd1ecc74667d09ae76fea1f1dca708b8855ef6526b64a6166d219bb905` | host/factory deployment provenance — **not** a receipt code anchor |
+| **Ceremony receipt attested anchor** (historical) | `85a326cda94bff9e56e0c6f0b72d6412c6a76d71f4329c43f1f651c23ebe5cea` | the code identity the genuine W5 receipt `0eceff7d…` certifies (profile hash at deletion, before the R-b profile upgrade); its historical V3-A verdict = **SUBNET-ATTESTED** |
 
 Two distinct Module Hashes are recorded. The **PROFILE CANISTER Module Hash**
-is the subnet-attested code anchor carried by every receipt (the value V3 certifies). The
+is the subnet-attested code anchor carried by every receipt (current terminology: V3 attested code identity). The
 **FACTORY Module Hash** is host/factory deployment provenance only — it is not the
 receipt's code anchor.
 
@@ -72,21 +143,14 @@ legacy profiles; §4 minted ceremony profile `y5izv-byaaa-aaaaj-qsdfq-cai` (owne
 `0eceff7de5785e5d50bedca0cb3553409ba6ef6c5e2929715f903b48ff6abf70`, factory 4-arg finalize OK
 (first live-mainnet exercise of the v4 proxy), guard PASS (delta 1.31s).
 
-**§5.1 incident + remediation (R-a/R-b).** The W5 §5.1 verifier network-fetch V3-A false-failed:
+**§5.1 incident + remediation (R-a/R-b).** The W5 §5.1 verifier network-fetch historical V3-A false-failed:
 DaffyDefs' `mktd_get_receipt` export struct dropped `module_hash_certificate`, so the verifier
 could not see the second certificate (the on-chain receipt was complete — proven at R-b step 5:
 both certs present). Remediation: **R-a** (SHA `5ca421f`) exports the field additively; **R-b**
-(22 Jul) re-upgraded `5g26e` (→ `ccbfbdfd`) and `y5izv` (→ `07421692`) on mainnet. **R-c verifier
-re-run: exit 0, V1/V2/V4 PASS, V3-A SUBNET-ATTESTED**; V3 (live) reports the expected
-upgraded-since-deletion divergence with provenance. Full evidence: handoff directory
+(22 Jul) re-upgraded `5g26e` (→ `ccbfbdfd`) and `y5izv` (→ `07421692`) on mainnet. The historical verifier
+re-run exited 0; current terminology for the archival code-identity result is **V3 SUBNET-ATTESTED**. Live module corroboration reports the expected upgraded-since-deletion divergence. Full evidence: handoff directory
 `ceremony_handoff_w5_remediated/`. §3 no-op remained fully in force; only `5g26e` and `y5izv`
 were ever touched.
-
-This field takes the mainnet value observed at go-live, read back from the deployed
-canister. A hash from a local `dfx` or PocketIC build MUST NOT be entered, even
-provisionally, even annotated: the build is not currently reproducible (see
-*Verification* below), so a local hash carries no expectation of equalling the mainnet
-value and would be actively misleading in this record.
 
 ## Dependency pins
 
@@ -96,70 +160,13 @@ value and would be actively misleading in this record.
 | zombie-core (DaffyDefs) | `zombie-core-v0.4.0` | `git+…/zombie-core?tag=zombie-core-v0.4.0#f3ab186fd091b9e618dc944e95b518366ac0c43e` |
 | zombie-core (verifier / helper line) | `zombie-core-v0.4.1` | `git+…/zombie-core?tag=zombie-core-v0.4.1#27d508f0df9c6a1f86c11b2bf197e3f091cb858f` |
 
-### The two zombie-core versions are intentional, and this is why it is correct
+### The two zombie-core versions are intentional
 
 The deployed DaffyDefs tree resolves **zombie-core v0.4.0** — matching `mktd02-v0.5.0`'s
-own pin, which keeps exactly one `zombie-core` in the canister dependency graph. The
-**verifier / helper line uses v0.4.1**. This divergence is correct and deliberate.
+own pin. The **verifier / helper line uses v0.4.1**. v0.4.1 added the off-canister finalization-delay constant and did not change the receipt wire/schema or hash preimages.
 
-v0.4.1 added **only** the off-canister finalization-delay constant. Verified against the
-tag-to-tag diff (`git diff zombie-core-v0.4.0 zombie-core-v0.4.1`, 4 files,
-+43 / −1):
+## Historical build/provenance status
 
-- `src/protocol.rs` (new) — adds `MAX_FINALIZATION_DELAY_NS` (3,600 s in ns), the
-  normative threshold interpreted authoritatively by CVDR-Verify.
-- `src/lib.rs` — `pub mod protocol` + crate-root re-export.
-- `Cargo.toml` — version bump `0.4.0` → `0.4.1`.
-- `RELEASES.md` — release notes.
+For this July release, the build recipe was not pinned sufficiently to support an independent source→WASM reproducibility claim. The historical release therefore used an **attested** provenance posture: the recorded module hash was the subnet-attested value observed on mainnet, not a claim that a third party could rebuild the same bytes from source.
 
-**No wire/schema change:** no receipt-schema, serialized-wire, preimage, domain-tag,
-receipt-ID, or golden-vector change; v4 three-state semantics untouched; no dependency
-bumps. The constant is consumed **off-canister only** (by the helper's guard, to decide
-`DELAY_EXCEEDED`), and never by canister code. A canister pinned to v0.4.0 and a helper
-pinned to v0.4.1 therefore agree on every byte that crosses the wire, and the receipts
-the canister produces are bit-identical under either. Pinning the canister to v0.4.0
-buys graph unity with the engine at zero semantic cost.
-
-## Build recipe
-
-| Field | Value |
-|---|---|
-| Recipe | `scripts/build.sh` (idempotent; builds `profile_canister` → `profile_factory` → `bulletin_board`, `ic-wasm shrink` per artifact into `wasm_out/`, then verifies Candid extraction on the shipped WASMs) |
-| Toolchain pins | **NONE — see finding** |
-
-### Finding: the build is not currently pinned or reproducible
-
-This is recorded as a finding, not papered over. As of `d03f9f1`, the build recipe does
-not pin its inputs:
-
-- **No `rust-toolchain.toml` / `rust-toolchain` file.** `rustc` floats to whatever is
-  ambient (observed at time of writing: `rustc 1.90.0 (1159e78c4 2025-09-14)`). A
-  different `rustc` will generally produce a different `module_hash` from identical
-  source.
-- **`cargo build` is invoked without `--locked`.** Nothing in the recipe enforces that
-  the committed `Cargo.lock` is the lock actually built against.
-- **`ic-wasm` is unpinned** — an unversioned command on `PATH`. `shrink` output is part
-  of the shipped artifact, so the `ic-wasm` version is `module_hash`-determining.
-- **No `dfx` version pin.** (`dfx.json`'s `"version": 1` is the dfx.json schema version,
-  not a dfx toolchain pin.)
-
-**Consequence for this record:** the same source commit is not currently guaranteed to
-reproduce the same `module_hash` on another machine, or on this machine at a later date.
-
-## Verification
-
-| Field | Value |
-|---|---|
-| `verification_level` | **`attested`** |
-
-**`attested` is what honestly applies** — at go-live and after it. `reproducible` is
-available only where the build recipe supports independent reproduction of the shipped
-artifact, and per the finding above, it does not. `attested` means the recorded
-`module_hash` is the value observed on the deployed mainnet canister and subnet-attested
-via the code-identity flow (the `read_state` module-hash certificate); it does **not**
-assert that a third party can rebuild that hash from source.
-
-Raising this release to `reproducible` requires pinning `rustc` (via
-`rust-toolchain.toml`), `ic-wasm`, and `dfx`, building with `--locked`, and then
-demonstrating a byte-identical rebuild. That work is not in Gate 2's W1–W5 scope and is
-not claimed here.
+That historical limitation is retained here as release history. It is superseded for the vNext candidate by the pinned profile build boundary and reproduction evidence recorded at the top of this file.

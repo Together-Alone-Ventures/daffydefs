@@ -1,183 +1,80 @@
-# DaffyDefs — Residual Trust Statement and Verification Procedure
+# DaffyDefs — Residual Trust Statement
 
-DaffyDefs is a demonstration application for ICP-Delete(Leaf). It issues a
-Cryptographically Verifiable Deletion Receipt (CVDR) when a user deletes their
-profile. This document states what a CVDR does and does not prove, what trust
-remains with the operator, and how anyone can verify a receipt independently.
+DaffyDefs is a demonstration application for ICP-Delete (Leaf). A user deleting a DaffyDefs profile can receive a Cryptographically Verifiable Deletion Receipt (CVDR).
 
-## Product statement
+## What V1–V4 establish
 
-> ICP-Delete(Leaf) requires an off-canister finalisation client, but does not
-> require a separate hosted finalisation service. The normal client may be the
-> application frontend; production deployments additionally provide a
-> deployer-operated retry worker for liveness. The finalisation client is
-> outside the CVDR trust and verification boundary.
+- **V1 — internal consistency:** the receipt's cryptographic relationships recompute correctly.
+- **V2 — certified commitment:** the commitment is backed by a valid IC certificate/delegation path for the relevant canister.
+- **V3 — attested code identity:** the receipt preserves subnet-certified evidence of the profile canister module hash at finalisation time.
+- **V4 — code provenance:** an independent verifier rebuilds the profile WASM from the disclosed source/dependencies/toolchain/recipe and obtains the same hash as the receipt-attested module hash.
 
-In DaffyDefs the finalisation client is the browser. After the user confirms
-deletion, the frontend completes the remaining phases: it reads the pending
-certificate from the profile canister, performs an anonymous `read_state` for
-that canister's `module_hash`, and submits both certificates to the factory's
-finalisation proxy, which forwards them to the profile canister.
+The supplied reference verifier automates V1–V3. It does **not** report V4 as passed.
 
-## What the receipt proves
+## Internet Computer trust root and subnet residual
 
-A CVDR is a claim about on-chain state, signed by the subnet. Verification
-recomputes the state-transition hashes, checks the embedded certificates against
-the Internet Computer root key, and compares the certified module hash against
-the published one. Those checks are performed by the verifier, from the receipt
-file and live chain state — not by the application that produced it.
+V2 and V3 ultimately rely on the public Internet Computer trust root and on the security assumptions of the subnet/NNS certificate system.
 
-## Residual trust
+The subnet certifies **state**: the receipt commitment and the canister module-hash state witnessed by the certificates. It does not independently observe or certify a physical "deletion act" outside that state model.
 
-### The finalisation client is not trusted
+A successful CVDR verification therefore means the cryptographic state/evidence claims validate under the IC trust root; it is not an oracle for data copies outside the certified system boundary.
 
-The browser guard (checks G1–G5b) runs before submission: it asserts the
-module-hash certificate witnesses the expected path for the receipt's own
-canister, that the certified module hash equals the receipt's embedded hash,
-that the Phase B certificate validates under the same trust anchor and that its
-delegation authorises the canister, that the certified commitment matches the
-pending receipt, and that the module-hash certificate is not older than the
-commitment certificate.
+## Profile-WASM provenance boundary
 
-**This guard is client-side integrity for the honest path. It is not
-enforcement.** Certificates are stored opaquely on-chain: the profile canister
-does not parse them, and the factory checks only that each blob is between 1 and
-4096 bytes. Nothing in the guard is re-executed by any canister, and a modified
-client could skip it entirely.
+The receipt's code-identity/provenance claim is about the **profile canister** identified by that receipt.
 
-The guard therefore protects against a correct client submitting inconsistent
-inputs. It does not, and cannot, establish that a receipt is sound.
-**Independent verification with CVDR-Verify is the sole authority on whether a
-receipt is valid.** A receipt that fails verification is invalid regardless of
-what the client reported at the time.
+Byte-exact reproducibility is required for the final post-shrink `profile_canister.wasm`.
 
-### The operator controls the canisters
+The profile factory, bulletin board, frontend, and reference verifier are outside that receipt's profile-WASM provenance boundary.
 
-The factory is the controller of every profile canister and can stop, delete or
-upgrade them. Users are authorised at the application level, not by the
-platform. A user cannot prevent an operator from destroying a profile canister
-after deletion; what they retain is the downloaded receipt, which verifies
-against chain state and the published module hash independently of whether the
-canister still exists.
+## Finalisation client
 
-## Operator warnings
+DaffyDefs uses the browser as the normal finalisation client. The browser is **not a trust anchor** for receipt validity. A modified or faulty client cannot make an invalid receipt valid.
 
-### `unmap_deleted_profile` strands pending receipts
+Lazy repair on a later authenticated visit provides a recovery path if the browser is closed before finalisation completes.
 
-The factory exposes `unmap_deleted_profile` (`src/profile_factory/src/lib.rs:513`).
-It removes the principal → canister mapping **with no pending-receipt check**.
+## Operator control
 
-Calling it while a receipt is still pending strands that receipt permanently.
-Once the mapping is gone, `get_or_create_profile_canister` mints a fresh canister
-for that principal, and the `is_managed` check inside `finalize_profile_receipt`
-can never match the old canister again. The pending receipt becomes
-unfinalisable — no client, worker or operator tool can complete it.
+The DaffyDefs operator controls the application canisters and can upgrade or stop them.
 
-It must only be called after confirming, from the receipt itself, that
-finalisation is complete and both certificate fields are present. The browser
-IDL deliberately omits this method so the frontend cannot reach it.
+A later profile-canister upgrade can change the live module hash. That does not erase the archived module-hash certificate preserved by an already-finalised receipt.
 
-### O-1: a pending receipt blocks canister upgrade
+## Live corroboration
 
-While a receipt is pending, the finalization lock is held, and any operation
-that would change certified data traps. Upgrading a profile canister runs
-`post_upgrade` → `on_post_upgrade` → `upgrade_cascade`, which republishes the
-certified commitment and therefore traps:
+A verifier may independently read the current profile canister module hash from ICP.
 
-> MKTd02: cannot change certified data while finalization lock is held.
-> Finalize the pending receipt before upgrading, refreshing state, or
-> performing any action that changes certified data.
+That is useful corroboration but is not a substitute for the archived code-identity evidence in an older receipt and is not V4 source provenance.
 
-This is a hard invariant, not a race. Finalise pending receipts before
-upgrading.
+## Tombstone persistence
 
-Relaxing this trap would not make upgrades safe. The lock exists to stop
-certified data drifting between Phase A and Phase C. If the commitment can move
-while a receipt is pending, the certificate captured at Phase B no longer
-describes the state the receipt claims, and G2's comparison of certified against
-embedded module hash loses its meaning. Removing the trap converts a blocked
-upgrade — loud, immediate, recoverable — into a finalisation failure discovered
-later, or a receipt that verifies against the wrong code identity. The trap may
-only be relaxed as part of a redesign of G2's semantics.
+Tombstone persistence is informational and non-gating in the current DaffyDefs reference tool. A transport failure or tombstone-diagnostic failure does not become an integrity PASS; it simply does not alter the V1–V3 process exit.
 
-## Liveness posture
+## Source/build provenance
 
-DaffyDefs is a demonstration and its finalisation liveness is best-effort.
+The DaffyDefs repository includes the TAV-specific source required for the profile build. Public Rust dependencies are resolved through the committed `Cargo.lock` from ordinary public distribution infrastructure.
 
-- Deletion itself is durable as soon as Phase A completes. The data is
-  tombstoned on-chain and the receipt exists; only the certificates that
-  complete it may still be outstanding.
-- If the browser is closed mid-flight, finalisation resumes automatically on the
-  next authenticated visit. The user is not asked to re-authorise the deletion.
-- A receipt whose owner never returns may remain Pending indefinitely. There is
-  no background worker in this deployment.
-- The operator can complete a stranded receipt out-of-band using the
-  off-canister finalisation CLI, which performs the same phases and the same
-  guard.
+The candidate profile build is pinned to Rust `1.97.1` and `ic-wasm 0.11.1`, and the canonical procedure is `scripts/build-profile-repro.sh`.
 
-The interface reflects this. Deletion-complete language and the download control
-appear only after the receipt has been re-read from the canister and confirmed
-finalised with both certificates present.
+Current evidence shows the same candidate bytes in multiple clean same-host configurations and in the pinned Debian container. No physically distinct-hardware reproduction is claimed.
 
-## Verification procedure
+The final live-demo provenance claim is not complete until a newly minted live profile is confirmed to run the candidate profile WASM and a fresh exported receipt attests that same hash.
 
-Anyone holding a downloaded receipt can verify it without access to DaffyDefs,
-its operator, or any credential.
+## Application-data scope
 
-**Requirements:** the `mktd02-verify` binary from CVDR-Verify, and network access
-to a public Internet Computer endpoint.
+Deleting a DaffyDefs profile proves the deletion/tombstoning claim for the profile state handled by the per-user profile canister.
 
-```bash
-mktd02-verify --receipt-file deletion-receipt-<id>.json \
-              --network https://icp-api.io
-```
+Shared bulletin-board content is outside that narrow profile proof. Historical shared content may remain in application state in an orphaned/de-identified presentation. A profile-deletion CVDR must not be described as proof that every piece of shared application content associated with the user has been erased.
 
-Verify the file exactly as downloaded. Do not edit it — reformatting or
-stripping fields can change the parse and invalidate the result.
+Copies that have already left the canister/application boundary — for example client caches, screenshots, exports, third-party scrapes, backups outside the proved system, or other independently retained copies — are outside the CVDR's scope unless a separate proof mechanism explicitly covers them.
 
-To additionally compare the receipt's code identity against an independently
-published module hash, supply it:
+## Reference verifier
 
-```bash
-mktd02-verify --receipt-file deletion-receipt-<id>.json \
-              --network https://icp-api.io \
-              --wasm-hash <published-module-hash>
-```
+The supplied verifier executable is a convenience implementation, not a trust anchor and not a compliance certification.
 
-The published profile-canister module hash is recorded in `RELEASES.md`.
-Supplying it turns the module check into a three-way comparison: on-chain,
-receipt, and published must all agree.
+A verifier may inspect the source, run the supplied binary, build the source themselves, or independently implement the published verification procedure.
 
-### Reading the output
+No claim is made that the supplied verifier binary itself has undergone a separate reproducible-build provenance exercise.
 
-Verification reports several checks. A sound receipt shows the state-transition
-hashes recomputed and matching, the embedded certificate valid with its
-certified data matching the receipt's commitment, the module hash agreeing
-across all supplied sources, and the code identity subnet-attested.
+## Remaining availability dependency
 
-Both certificate fields must be present in the file. `module_hash_certificate`
-is what the attested-code-identity check consumes; a receipt missing it cannot
-reach an attested verdict even if everything else is sound.
-
-### Check-label translation
-
-Version 0.6.1 of the verifier predates the check renumbering. Its labels map as
-follows:
-
-| v0.6.1 label | Current meaning |
-|---|---|
-| `V1` | Unchanged — state-transition hashes |
-| `V2` | Unchanged — certificate path |
-| `V3-A` (attested) | Current **V3** — attested code identity |
-| `V3` (module, live) | Current **V4** — provenance leg |
-| `V4` (tombstone) | **Retired.** It still runs and passes; it is not a current claim |
-
-A `MISMATCH-EXPECTED` result on the live module check means the canister has been
-upgraded since the deletion. The receipt remains valid under the code version it
-was issued against; the attested check is what establishes that code identity.
-
-## Verified examples
-
-`docs/acceptance/` holds two receipts produced by real mainnet deletions,
-together with their complete verifier output. They can be used to see what a
-sound verification looks like before checking your own.
+Standard public Rust dependencies are not copied wholesale into the application repository. Their identity is lockfile/checksum constrained; their future availability depends on ordinary public software distribution/archive infrastructure.
