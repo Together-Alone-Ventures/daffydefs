@@ -55,22 +55,19 @@ The earlier controller-environment assumption that deployment had to occur only 
 
 The acceptance used fail-closed preflight checks and certified post-deployment state reads. No controller change was made.
 
-## Public branch state
+## Release-pack closeout
 
-At the pre-freeze audit, `vnext-self-contained-baseline` was 13 commits ahead of `origin/main` and 0 behind. The histories are non-divergent, so the final verified tree can be made the normal public landing by a clean fast-forward of `main`.
+The DaffyDefs demo capsule was frozen at commit `a386840de7feedb097a66a5e68285593b3a0c8f5`.
 
-Do not move `main` until the final release-pack review is complete.
+The reviewed `vnext-self-contained-baseline` branch was pushed first. `main` was then fast-forwarded to the same commit with no merge commit and no force push. At closeout the two branches were identical.
 
-## Remaining release-pack work
+The Demo Pack, current acceptance evidence, release record and verification documentation are therefore aligned to the reviewed release-pack state. The clean Demo-Pack-only outsider walkthrough completed successfully through V1–V4.
 
-- add `docs/DEMO_PACK.md`;
-- run one final Demo-Pack-only outsider walkthrough and fix only genuine correctness/usability defects;
-- resolve the TAV licence choice when Glen determines the intended reuse terms;
-- perform one final claims/diff review;
-- commit/push the final pack;
-- fast-forward `main` to that reviewed release-pack commit.
+Remaining items are intentionally deferred policy/maintenance work, not release-pack blockers:
 
-Post-demo dependency refreshes, wider documentation cleanup and upstream CVDR-Verify realignment are non-blocking follow-up work.
+- TAV licence selection before any intended open-source grant;
+- dependency refreshes after the frozen demo/provenance line;
+- wider documentation cleanup and upstream CVDR-Verify realignment as separate maintenance work.
 
 ## Demo-Pack-only outsider walkthrough — 15 August 2026
 

@@ -18,7 +18,7 @@ The current demo release binds the disclosed profile-canister source/build proce
 | Acceptance JSON SHA-256 | `add5a6c5f3a996fa6e24184823e74ea1ff1bef0949fb86dff91b1cf04d2bf3e2` |
 | Live deployment binding | **CONFIRMED — 15 Aug 2026** |
 
-The repository/documentation freeze commit may follow the product/build provenance anchor above. Documentation-only additions do not alter the profile source/build inputs whose resulting WASM is identified by the receipt.
+The repository/documentation freeze commit is `a386840de7feedb097a66a5e68285593b3a0c8f5`. It follows the product/build provenance anchor above and changes documentation/banked evidence only; it does not alter the profile source/build inputs whose resulting WASM is identified by the receipt.
 
 ### Profile build boundary
 
