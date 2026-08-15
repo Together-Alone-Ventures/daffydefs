@@ -1,6 +1,38 @@
-# Browser finalisation — acceptance record
+# DaffyDefs — Acceptance Evidence
 
-Date of record: 2026-08-02. Runs performed 2026-08-01.
+## Current demo release acceptance — 15 Aug 2026
+
+A fresh profile was minted through the live DaffyDefs application after the factory had been upgraded to embed the reproducibly built profile WASM.
+
+| Field | Value |
+|---|---|
+| Profile canister | `5ff4g-7qaaa-aaaaj-qsehq-cai` |
+| Receipt | `050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6` |
+| Receipt file | `receipts/deletion-receipt-050f1528.json` |
+| Receipt-file SHA-256 | `add5a6c5f3a996fa6e24184823e74ea1ff1bef0949fb86dff91b1cf04d2bf3e2` |
+| V3-attested profile hash | `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9` |
+| Product/build provenance anchor | `14fb08c40f42419a4ca767982c8f797351025ff1` |
+| Live factory hash | `837a44b3ece8b901ad1af305a1252f6bd53d93819e81ea288584e547e970699a` |
+
+The exact downloaded JSON passed the packaged DaffyDefs reference verifier:
+
+- V1 PASS;
+- V2 PASS in receipt-contained mode;
+- V3 SUBNET-ATTESTED;
+- V4 deliberately reported NOT EVALUATED by the tool;
+- live module corroboration MATCH;
+- tombstone persistence PASS as a non-gating diagnostic;
+- process exit 0.
+
+The release-record profile hash matched the receipt. An independent live ICP module-hash read matched the receipt. An independent exact-source rebuild then produced the same `cb16ee...` post-shrink profile hash, completing the published V4 procedure.
+
+This acceptance does not claim reproduction on physically distinct hardware.
+
+---
+
+## Historical browser-finalisation acceptance — 1 Aug 2026
+
+Date of historical record: 2026-08-02. Runs performed 2026-08-01.
 
 ## What was run
 

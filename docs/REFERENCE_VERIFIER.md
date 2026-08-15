@@ -20,7 +20,7 @@ Baseline:
 
 ## Binary
 
-Private-demo target:
+Packaged Linux target:
 
 - OS: Linux
 - architecture: x86_64

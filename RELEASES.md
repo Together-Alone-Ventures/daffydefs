@@ -1,20 +1,24 @@
 # DaffyDefs — Release Record
 
-## vNext DaffyDefs Demo Capsule — candidate (14 Aug 2026)
+## DaffyDefs Demo Capsule — live acceptance (15 Aug 2026)
 
-Historical release records below describe the deployment state and claims that applied to those earlier releases. Where an older section says the build was unpinned or attested-only, read that as a statement about that historical release, not this vNext candidate.
+The current demo release binds the disclosed profile-canister source/build procedure to a fresh live mainnet receipt. Historical records below are retained only as evidence for earlier releases.
 
-### Capsule identity
+### Release identity
 
 | Field | Value |
 |---|---|
-| Private branch | `vnext-self-contained-baseline` |
-| Backed-up branch head at audit | `de7ca23f8787917daaac6018cdbdbacd6657f704` |
-| Profile-repro recipe commit | `273906206a0760ca88896524761809e260d996c8` |
-| Profile-WASM candidate SHA-256 | `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9` |
-| Live deployment binding | **PENDING controller-window acceptance** |
+| Product/build provenance anchor | `14fb08c40f42419a4ca767982c8f797351025ff1` |
+| Profile reproducibility recipe introduced at | `273906206a0760ca88896524761809e260d996c8` |
+| Released profile-WASM SHA-256 | `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9` |
+| Live factory module hash | `837a44b3ece8b901ad1af305a1252f6bd53d93819e81ea288584e547e970699a` |
+| Acceptance profile | `5ff4g-7qaaa-aaaaj-qsehq-cai` |
+| Acceptance receipt | `050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6` |
+| Acceptance JSON | `docs/acceptance/receipts/deletion-receipt-050f1528.json` |
+| Acceptance JSON SHA-256 | `add5a6c5f3a996fa6e24184823e74ea1ff1bef0949fb86dff91b1cf04d2bf3e2` |
+| Live deployment binding | **CONFIRMED — 15 Aug 2026** |
 
-The capsule repository commit and the profile-WASM provenance boundary are distinct.
+The repository/documentation freeze commit may follow the product/build provenance anchor above. Documentation-only additions do not alter the profile source/build inputs whose resulting WASM is identified by the receipt.
 
 ### Profile build boundary
 
@@ -23,6 +27,8 @@ The V4 reproducibility target is:
 `wasm_out/profile_canister.wasm`
 
 after `ic-wasm ... shrink`.
+
+The factory, bulletin board, frontend and reference-verifier executable are not part of this profile-WASM V4 target.
 
 ### Toolchain and source pins
 
@@ -41,33 +47,68 @@ Canonical recipe:
 bash scripts/build-profile-repro.sh
 ```
 
-Pinned container environment:
-
-```bash
-bash scripts/build-capsule-container.sh
-```
-
 ### Reproduction evidence
 
-The profile WASM has been reproduced from the DaffyDefs source in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only capsule with no TAV credentials. These runs produced:
+The profile WASM has been reproduced from the disclosed DaffyDefs source in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only capsule with no TAV credentials.
+
+Each successful reproduction produced:
 
 `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
 
-No reproduction on physically distinct hardware is claimed. The published build procedure and source material allow any third party to perform an independent rebuild.
+No reproduction on physically distinct hardware is claimed. The published source/build procedure permits an independent third party to perform its own rebuild.
 
-### Deployment status
+### Factory binding
 
-Before the demo capsule is frozen, the approved controller-window acceptance must:
+For the accepted deployment, the factory was built from repository head:
 
-1. deploy/confirm the browser-finalisation frontend required by the current flow;
-2. build the factory using the exact candidate profile WASM;
-3. deploy/upgrade the factory through the approved controller environment;
-4. mint a fresh profile;
-5. delete it through the live flow and download the CVDR JSON without transformation;
-6. verify that JSON directly with the DaffyDefs reference verifier; and
-7. confirm the receipt's certified `module_hash` equals the candidate hash above.
+`14fb08c40f42419a4ca767982c8f797351025ff1`
 
-Only after that binding is observed should the live release be described as reproducibly grounded for V4.
+using the exact canonical profile WASM bytes above as `src/profile_factory/profile_canister_embedded.wasm`.
+
+The resulting factory was deployed and read back from mainnet with module hash:
+
+`837a44b3ece8b901ad1af305a1252f6bd53d93819e81ea288584e547e970699a`
+
+The factory hash records factory deployment provenance. It is **not** the receipt's profile code-identity anchor.
+
+### Fresh mainnet acceptance
+
+A newly minted profile was created through the live DaffyDefs application and deleted through the ordinary browser flow.
+
+Receipt:
+
+`050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6`
+
+Profile canister:
+
+`5ff4g-7qaaa-aaaaj-qsehq-cai`
+
+Receipt-attested profile module hash:
+
+`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+
+The exact browser-exported JSON is banked without transformation at:
+
+`docs/acceptance/receipts/deletion-receipt-050f1528.json`
+
+The packaged reference verifier reported:
+
+- V1: PASS — internal hash relationships recomputed and matched;
+- V2: PASS — embedded certificate valid and certified data matched the receipt commitment;
+- V3: SUBNET-ATTESTED — code identity certified by the subnet;
+- V4: NOT EVALUATED by the reference verifier, as designed;
+- live module corroboration: MATCH, informational/non-gating;
+- tombstone persistence: PASS, informational/non-gating;
+- process exit: `0`.
+
+Independent current-state corroboration read the profile's live ICP module hash and obtained the same `cb16ee...` value.
+
+Full V4 was then performed independently from the exact public source anchor. The rebuilt post-shrink profile WASM again produced `cb16ee...`, equal to the module hash attested in the fresh receipt.
+
+Therefore the accepted V4 chain is:
+
+**public source/build materials → rebuilt profile WASM → SHA-256 `cb16ee...` → same module hash certified in the fresh mainnet deletion receipt.**
+
 
 ---
 
@@ -169,4 +210,4 @@ own pin. The **verifier / helper line uses v0.4.1**. v0.4.1 added the off-canist
 
 For this July release, the build recipe was not pinned sufficiently to support an independent source→WASM reproducibility claim. The historical release therefore used an **attested** provenance posture: the recorded module hash was the subnet-attested value observed on mainnet, not a claim that a third party could rebuild the same bytes from source.
 
-That historical limitation is retained here as release history. It is superseded for the vNext candidate by the pinned profile build boundary and reproduction evidence recorded at the top of this file.
+That historical limitation is retained here as release history. It is superseded for the current demo release by the pinned profile build boundary and reproduction evidence recorded at the top of this file.

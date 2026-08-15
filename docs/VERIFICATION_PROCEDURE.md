@@ -108,7 +108,30 @@ A match shows that the receipt's code identity matches the DaffyDefs release ide
 
 ### Option D — full V4: rebuild and compare
 
-Run:
+For the accepted live release, the product/build provenance anchor is:
+
+```text
+14fb08c40f42419a4ca767982c8f797351025ff1
+```
+
+A verifier may use an existing clean Git checkout at that exact commit. For a non-developer path requiring no TAV credentials, an exact-commit public source archive can be obtained with:
+
+```bash
+set -euo pipefail
+
+ANCHOR=14fb08c40f42419a4ca767982c8f797351025ff1
+
+curl -fL \
+  --retry 5 \
+  --retry-delay 2 \
+  -o "daffydefs-${ANCHOR}.tar.gz" \
+  "https://codeload.github.com/Together-Alone-Ventures/daffydefs/tar.gz/${ANCHOR}"
+
+tar -xzf "daffydefs-${ANCHOR}.tar.gz"
+cd "daffydefs-${ANCHOR}"
+```
+
+Then run:
 
 ```bash
 bash scripts/build-profile-repro.sh
@@ -126,15 +149,21 @@ Compute:
 sha256sum wasm_out/profile_canister.wasm
 ```
 
-Current candidate:
+Released profile-WASM SHA-256:
 
 ```text
 cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9
 ```
 
-V4 is established for a receipt when the hash reproduced from the disclosed source/build procedure equals the module hash attested for that receipt.
+V4 is established for a receipt when the hash reproduced from the disclosed source/build procedure equals the module hash V3 attests for that receipt.
 
 Do not substitute the factory hash, frontend asset hash, bulletin-board hash, or verifier-binary hash.
+
+### Note on TAV dependency names during Cargo output
+
+The product's `.cargo/config.toml` replaces the TAV Git source identities used by the dependency graph with the local source snapshots under `vendor/`.
+
+Cargo output may therefore still display original TAV Git URLs as package identities. That does **not** mean the V4 build fetched those TAV sources from a private repository; the build resolves them from the disclosed local snapshots.
 
 ## Container reproduction
 
@@ -146,35 +175,52 @@ bash scripts/build-capsule-container.sh
 
 This packages tracked files only, embeds the capsule commit as packaging metadata, validates that identity in the container, and invokes the same canonical profile build script.
 
-## Worked example 1 — fresh downloaded JSON; live code unchanged
+## Worked example 1 — accepted live release
 
-This example uses the exact JSON export from a fresh mainnet DaffyDefs deletion.
+This example uses the exact browser-exported JSON banked at:
+
+```text
+docs/acceptance/receipts/deletion-receipt-050f1528.json
+```
+
+Run:
 
 ```bash
 tools/cvdr-verify/bin/linux-x86_64/mktd02-verify \
-  --receipt-file <downloaded-receipt.json>
+  --receipt-file docs/acceptance/receipts/deletion-receipt-050f1528.json
 ```
 
 Receipt identity:
 
 ```text
-Canister : 4gjva-liaaa-aaaaj-qseba-cai
-Receipt  : 7ee5651b6ed53667d46ae54ae950a93a60b8c99dbd2277681625b15e34c0a4a6
+Canister : 5ff4g-7qaaa-aaaaj-qsehq-cai
+Receipt  : 050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6
+Module   : cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9
 ```
 
-Key output:
+Key result:
 
 ```text
 V1: PASS — all 4 hashes independently recomputed and match
 V2: PASS (receipt-contained mode) — embedded certificate valid, certified_data matches receipt commitment
-V3 — attested code identity: SUBNET-ATTESTED — code identity certified by the subnet (finalization delay 1.7s)
+V3 — attested code identity: SUBNET-ATTESTED — code identity certified by the subnet
 V4 — code provenance: NOT EVALUATED (see published verification procedure)
-INFO — live module corroboration (non-gating): MATCH — canister code unchanged since deletion
-INFO — tombstone persistence (diagnostic, non-gating): PASS — tombstone intact, state hash matches
-portable exit: 0
+INFO — live module corroboration (non-gating): MATCH
+INFO — tombstone persistence (diagnostic, non-gating): PASS
+process exit: 0
 ```
 
-This illustrates the ordinary case: the downloaded JSON verifies, the archived V3 code identity is subnet-attested, and the current live module still matches the receipt-attested code.
+The release-record profile hash also matched the receipt's V3-attested `module_hash`.
+
+An independent public ICP current-state read returned the same live profile module hash.
+
+Finally, rebuilding the profile WASM independently from the exact public source anchor produced:
+
+```text
+cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9
+```
+
+which exactly equals the module hash attested in the fresh receipt. This establishes V4 for this accepted example.
 
 ## Worked example 2 — archival receipt after a later upgrade
 
@@ -203,8 +249,12 @@ The `MISMATCH-EXPECTED` is not a receipt failure. It demonstrates why the receip
 
 ## Current evidence status
 
-The candidate profile WASM has been reproduced in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only capsule with no TAV credentials. These runs produced the same post-shrink profile hash.
+The released profile WASM has been reproduced in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only source capsule with no TAV credentials.
 
-No reproduction on physically distinct hardware is claimed. The published recipe enables any third party to perform an independent rebuild.
+The fresh live acceptance receipt `050f1528...` attests the same post-shrink profile hash produced by those builds:
 
-The final live-demo claim remains pending until the approved controller-window deployment ensures newly minted profiles use this candidate profile WASM and a fresh exported receipt attests the same module hash.
+`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+
+The exact exported JSON produced V1 PASS, V2 PASS and V3 SUBNET-ATTESTED, the current live ICP module hash independently matched, and an independent exact-source rebuild produced the same hash.
+
+No reproduction on physically distinct hardware is claimed. Any third party can repeat the published rebuild-and-compare procedure using the public source/build materials.

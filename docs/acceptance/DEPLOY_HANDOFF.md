@@ -1,4 +1,7 @@
-# Frontend deploy handoff — browser finalisation bundle
+# HISTORICAL — Frontend deploy handoff — browser finalisation bundle
+
+> **Status: COMPLETED / SUPERSEDED.** This file is retained as the 2 Aug 2026 deployment handoff record and is not current deployment instruction. The browser-finalisation frontend was subsequently deployed. For the 15 Aug acceptance, the encrypted `zd-deployer` identity present on the laptop was verified to match the sole controller principal before use; the earlier desktop-only assumption recorded below no longer describes the accepted ceremony environment.
+
 
 Date of record: 2026-08-02.
 

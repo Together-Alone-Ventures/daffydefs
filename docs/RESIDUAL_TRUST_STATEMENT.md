@@ -53,11 +53,21 @@ Tombstone persistence is informational and non-gating in the current DaffyDefs r
 
 The DaffyDefs repository includes the TAV-specific source required for the profile build. Public Rust dependencies are resolved through the committed `Cargo.lock` from ordinary public distribution infrastructure.
 
-The candidate profile build is pinned to Rust `1.97.1` and `ic-wasm 0.11.1`, and the canonical procedure is `scripts/build-profile-repro.sh`.
+The released profile build is pinned to Rust `1.97.1` and `ic-wasm 0.11.1`; the canonical procedure is `scripts/build-profile-repro.sh`.
 
-Current evidence shows the same candidate bytes in multiple clean same-host configurations and in the pinned Debian container. No physically distinct-hardware reproduction is claimed.
+The product/build provenance anchor used for the accepted deployment is:
 
-The final live-demo provenance claim is not complete until a newly minted live profile is confirmed to run the candidate profile WASM and a fresh exported receipt attests that same hash.
+`14fb08c40f42419a4ca767982c8f797351025ff1`
+
+The released post-shrink profile hash is:
+
+`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+
+The same bytes were reproduced in multiple clean same-host configurations and in a pinned Debian container. A fresh mainnet receipt from newly minted profile `5ff4g-7qaaa-aaaaj-qsehq-cai` V3-attests that same module hash.
+
+An independent exact-source rebuild was also performed during the acceptance walkthrough and produced the same hash.
+
+No physically distinct-hardware reproduction is claimed.
 
 ## Application-data scope
 
