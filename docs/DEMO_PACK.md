@@ -73,6 +73,8 @@ Compare the rebuilt hash with the receipt's attested `module_hash`. This is supp
 
 ## Accepted worked example — 16 Sep 2026
 
+See the concise [ceremony evidence record](acceptance/ceremony-2026-09-16.md).
+
 The normal demo uses your own receipt. The repository also banks the exact untouched browser JSON from the accepted ceremony:
 
 - Implementation: `e2b073971aae5f1c97edee59875bec15628821c7`.
