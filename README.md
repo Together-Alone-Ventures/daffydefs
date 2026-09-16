@@ -9,33 +9,33 @@ Using this repository and ordinary public infrastructure, a technically competen
 1. create and download their own DaffyDefs CVDR JSON;
 2. verify that exact JSON with the supplied reference verifier;
 3. independently corroborate the relevant profile-canister module hash from ICP;
-4. compare the receipt's V3-attested code identity with the DaffyDefs release record; and
+4. compare the receipt's V3A-attested code identity with the accepted hash below; and
 5. perform the supplementary V3B build-provenance comparison by rebuilding the profile-canister WASM from the disclosed source/build materials and comparing its SHA-256 with the module hash attested in the receipt.
 
-The reference verifier evaluates the applicable V1, V2 and V3A validity axes. V3B build provenance is established separately by the published rebuild-and-compare procedure.
+The reference verifier evaluates the applicable V1, V2 and V3A validity axes. V3B build provenance is supplementary/non-gating and is established separately by the published rebuild-and-compare procedure.
 
 ## Current live demo release
 
 - Live frontend: `https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/`
-- Product/build provenance anchor: `14fb08c40f42419a4ca767982c8f797351025ff1`
+- Product/build provenance anchor: `e2b073971aae5f1c97edee59875bec15628821c7`
 - Released post-shrink profile-WASM SHA-256:
-  `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+  `30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb`
 - Live factory module hash:
-  `837a44b3ece8b901ad1af305a1252f6bd53d93819e81ea288584e547e970699a`
+  `b476a41de6c36556262282f9e93aa9e35e2957b5cd2a953dddf32651f9fc001e`
 - Fresh acceptance profile:
-  `5ff4g-7qaaa-aaaaj-qsehq-cai`
+  `petd6-ciaaa-aaaaj-qshha-cai`
 - Fresh acceptance receipt:
-  `050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6`
+  `90347766510e664818831810d7c53091936192dae63db48bb194b96e00006149`
 - Banked exact JSON:
-  `docs/acceptance/receipts/deletion-receipt-050f1528.json`
+  `docs/acceptance/receipts/deletion-receipt-90347766.json`
 - Banked JSON SHA-256:
-  `add5a6c5f3a996fa6e24184823e74ea1ff1bef0949fb86dff91b1cf04d2bf3e2`
+  `1a12152b8869814ddd80ef11234864211fa7f5119e0b7eebf4e9e46d8a6b62d1`
 - Packaged Linux reference-verifier SHA-256:
-  `c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f`
+  `b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
 
-The fresh mainnet receipt attests the released profile hash above. V1 PASS and V2 PASS were obtained against the exact downloaded JSON, and V3 was SUBNET-ATTESTED; the current live profile hash independently matched; and an independent rebuild from the exact public source anchor produced the same post-shrink profile hash.
+The 16 Sep 2026 untouched browser receipt passed V1 / V2 / V3A and overall validity under both the packaged verifier and a fresh verifier built from `560e483b047209ee83463dfab29da07acb422feb` (0.8.0 DRAFT, no release tag). V3B was not evaluated in those invocations; it is supplementary/non-gating build provenance. The canonical, deployed and receipt-attested profile hashes match. The canonical recipe reproduced that profile hash during this capsule freeze.
 
-The reproduction was performed in multiple clean same-host configurations and in a pinned Debian container built from a tracked-files-only source capsule with no TAV credentials. **No reproduction on physically distinct hardware is claimed.**
+Start with [the self-contained Demo Pack](docs/DEMO_PACK.md). Its current identity values supersede the older release/acceptance prose pending a separate documentation pass. Byte-exact reproducibility applies only to profile-canister WASM; no reproduction on physically distinct hardware is claimed.
 
 ## Repository map
 
@@ -53,8 +53,8 @@ The reproduction was performed in multiple clean same-host configurations and in
 - `docs/VERIFICATION_PROCEDURE.md` — technical V1/V2/V3A/V3B verification procedure
 - `docs/RESIDUAL_TRUST_STATEMENT.md` — what the receipt does and does not establish
 - `docs/REFERENCE_VERIFIER.md` — reference-verifier packaging and trust posture
-- `docs/acceptance/` — current and historical acceptance evidence
-- `RELEASES.md` — release/deployment record
+- `docs/acceptance/receipts/` — banked current and historical receipt evidence
+- `RELEASES.md` — earlier release/deployment records (current identity is above)
 
 ## Rebuilding the profile WASM
 
@@ -78,13 +78,7 @@ bash scripts/build-profile-repro.sh
 Expected released output:
 
 ```text
-cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9  wasm_out/profile_canister.wasm
-```
-
-Pinned-container reproduction:
-
-```bash
-bash scripts/build-capsule-container.sh
+30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb  wasm_out/profile_canister.wasm
 ```
 
 ## Application build
@@ -95,4 +89,4 @@ bash scripts/build-capsule-container.sh
 
 The CVDR code-identity/provenance claim is about the **profile canister identified by the receipt**. The factory, bulletin board, frontend and reference verifier are outside that profile-WASM provenance boundary.
 
-Older acceptance and deployment records retained under `docs/acceptance/` and the historical sections of `RELEASES.md` are explicitly historical evidence. They do not define the current release.
+Older acceptance and deployment prose under `docs/acceptance/` and `RELEASES.md` remains historical evidence, even where it retains an older “current” heading. It does not define this release.

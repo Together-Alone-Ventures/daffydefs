@@ -661,7 +661,7 @@ function App() {
           <div className="card">
             <h2>Profile Deleted</h2>
             <p className="muted">
-              Your personal data has been cryptographically deleted. Your deletion receipt remains accessible for verification. To use DaffyDefs again, sign up with a new Internet Identity.
+              Your profile data has been removed from the active application state. If you saved the CVDR, you can use it later to verify the certified deletion-event evidence and attested code identity. To use DaffyDefs again, sign out and choose a new account for this app.
             </p>
             <div className="button-row">
               <button className="button button-secondary" onClick={handleLogout}>

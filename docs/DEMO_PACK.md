@@ -1,284 +1,87 @@
 # DaffyDefs Demo Pack
 
-This is the shortest path for an independent outsider to try DaffyDefs, obtain a real deletion receipt, and verify what that receipt establishes.
+Create a profile, delete it once, let automatic finalisation finish, download your CVDR, and verify that exact JSON.
 
-No TAV credentials are required.
+**Distribution gate pending (17 Sep 2026):** the unauthenticated GitHub verifier and source-archive URLs below returned HTTP 404 during the freeze check. The pinned artifacts exist in the repository and pass local checks, but the no-credentials outsider walkthrough cannot be completed until public access is available.
 
-## What this demonstrates
+## 1. Obtain your own receipt
 
-DaffyDefs is a worked example of ICP-Delete (Leaf): each user profile is held in its own Internet Computer canister.
+Open https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/ and sign in with Internet Identity. Create a profile, then delete it once. Wait for automatic finalisation; there is no extra user finalisation action. Download the CVDR when the finalized receipt is ready and keep the file unchanged.
 
-When a profile is deleted, DaffyDefs can export a Cryptographically Verifiable Deletion Receipt (CVDR) as JSON.
+The normal demonstration uses **your own fresh receipt**. The receipt certifies deletion-event evidence and attested profile code identity. It does not establish deletion of copies outside the application boundary, such as screenshots, exports or shared bulletin-board content.
 
-The verification model is cumulative:
+## 2. Verify the untouched JSON
 
-- **V1 — internal consistency:** the receipt's cryptographic relationships recompute correctly.
-- **V2 — certified data:** the receipt's version-specific certified value is backed by a valid Internet Computer certificate/delegation path.
-- **V3 — attested code identity:** the receipt preserves subnet-certified evidence of the profile-canister module hash at finalisation time.
-- **V3B — build provenance:** an independent rebuild of the disclosed profile-canister source can be compared with the module hash that V3A attests in the receipt.
-
-The supplied v0.8.0 DRAFT reference verifier evaluates the ratified validity axes. V3B build provenance is a separate, non-gating comparison using the canonical profile-WASM recipe.
-
-V1 is not a claim that arbitrary receipt contents are "true"; it establishes internal cryptographic consistency. V2, V3A and V3B add progressively stronger external evidence.
-
-## Scope
-
-The receipt's code-identity/provenance claim is about the **profile canister identified by that receipt**.
-
-It does not claim deletion of every copy that may exist outside that proved system boundary. Shared bulletin-board content, client caches, screenshots, exports, third-party copies and other independently retained copies are outside this narrow profile proof unless separately covered.
-
-## 1. Try the live application and download your own CVDR
-
-Open:
-
-`https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/`
-
-Use the application normally:
-
-1. sign in with Internet Identity;
-2. create/use a DaffyDefs profile;
-3. initiate profile deletion;
-4. allow the automatic finalisation flow to complete; there is no separate user finalisation action;
-5. download the resulting CVDR JSON when it is offered.
-
-Keep that downloaded JSON unchanged. The strongest demonstration uses **your own fresh receipt**, not a preselected sample.
-
-If the browser is interrupted before finalisation completes, DaffyDefs can attempt lazy repair on a later authenticated visit. Recovery may retry the normal process; it does not manufacture missing evidence.
-
-## 2. Protocol validity — quickest verification
-
-For protocol validity you need only:
-
-- your downloaded CVDR JSON;
-- the supplied Linux x86_64 reference verifier; and
-- ordinary public Internet access.
-
-You do **not** need the DaffyDefs source tree for protocol validity.
-
-### Download the packaged reference verifier
-
-For a clean Linux x86_64 walkthrough, download the accepted executable directly from the public repository at the pinned provenance anchor:
+On Linux x86_64, with `curl` and `sha256sum` installed, download the packaged reference verifier from the pinned capsule implementation:
 
 ```bash
-curl -fL \
-  --retry 5 \
-  --retry-delay 2 \
-  -o mktd02-verify \
-  https://raw.githubusercontent.com/Together-Alone-Ventures/daffydefs/b4c9c79dfebdb8caf45dffe4f77418df20a95e9c/tools/cvdr-verify/bin/linux-x86_64/mktd02-verify
-
+curl -fL --retry 5 --retry-delay 2 -o mktd02-verify \
+  https://raw.githubusercontent.com/Together-Alone-Ventures/daffydefs/e2b073971aae5f1c97edee59875bec15628821c7/tools/cvdr-verify/bin/linux-x86_64/mktd02-verify
+printf '%s  %s\n' \
+  b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c \
+  mktd02-verify | sha256sum --check
 chmod +x mktd02-verify
+./mktd02-verify --version
 ```
 
-If you already have the repository checked out, the same accepted executable is at:
+The version is `mktd02-verify 0.8.0` (0.8.0 DRAFT, no release tag). Authoritative verifier source: `560e483b047209ee83463dfab29da07acb422feb` in Together-Alone-Ventures/CVDR-Verify. The capsule includes its source under `tools/cvdr-verify/`; the executable is convenience software, **not a trust anchor**.
 
-`tools/cvdr-verify/bin/linux-x86_64/mktd02-verify`
-
-Its SHA-256 is:
-
-`b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
-
-It reports version:
-
-`mktd02-verify 0.8.0`
-
-The executable is a convenience artifact, **not a trust anchor**. You may instead inspect/build its source or independently implement the published checks.
-
-If you have the repository checked out, verify the packaged executable before use:
+Replace the receipt path below with your downloaded file:
 
 ```bash
-sha256sum tools/cvdr-verify/bin/linux-x86_64/mktd02-verify
-tools/cvdr-verify/bin/linux-x86_64/mktd02-verify --version
+./mktd02-verify --receipt-file /path/to/your-downloaded-receipt.json --trust-root mainnet
 ```
 
-Expected SHA-256:
+Expect V1 (internal cryptographic consistency), V2 (certified deletion-event evidence), V3A (attested code identity), and overall validity to pass. V3B is supplementary/non-gating build provenance and is not evaluated by this invocation. Output formatting is provisional; these are expected results, not a fixed transcript. V2 and V3A rely on the mainnet trust root and IC certificate model.
+
+The accepted profile-WASM SHA-256 is:
 
 ```text
-b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c
+30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb
 ```
 
-### Run it on the exact downloaded JSON
+Compare it directly with `module_hash` in your receipt. Equality binds the receipt's attested code identity to this accepted profile build. No separate live-module lookup is needed for this walkthrough.
+
+## 3. Optional V3B: rebuild the profile WASM
+
+Only the final post-`ic-wasm shrink` **profile-canister WASM** is a byte-exact reproducibility target. Factory, frontend and verifier binaries are outside that claim.
+
+Prerequisites: Rust `1.97.1`, target `wasm32-unknown-unknown`, `ic-wasm` `0.11.1`, `curl`, `tar`, and access to public crates.io dependencies. Run from a fresh directory:
 
 ```bash
-tools/cvdr-verify/bin/linux-x86_64/mktd02-verify \
-  --receipt-file /path/to/your-downloaded-receipt.json --trust-root mainnet
-```
-
-The output is generic and line-dependent. For v4/v5 validity is V1 ∧ V2 ∧ V3A;
-for v2/v3 validity is V1 ∧ V2. V3B and live diagnostics are non-gating.
-
-```text
-validity: PASS  (only when the receipt's applicable validity axes pass)
-V3B — build provenance: NOT EVALUATED  (unless --wasm-hash is supplied)
-```
-
-The tool also reports live module corroboration and tombstone persistence as **INFO / non-gating** checks.
-
-The process exit follows the applicable protocol validity axes; supplementary diagnostics do not gate validity.
-
-## 3. Compare the receipt with the published release identity
-
-Open `RELEASES.md`.
-
-The accepted DaffyDefs profile-WASM SHA-256 is:
-
-`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
-
-Compare that value with the `module_hash` in your receipt.
-
-A match shows that the receipt's V3-attested code identity matches the DaffyDefs release identity recorded by TAV.
-
-This is useful corroboration, but the candidate remains an offline implementation until the mainnet ceremony supplies a fresh receipt.
-
-## 4. Optional current-state corroboration from ICP
-
-You may also independently read the profile canister's **current** module hash from the Internet Computer.
-
-With `dfx` installed:
-
-```bash
-dfx canister info <PROFILE_CANISTER_ID_FROM_YOUR_RECEIPT> \
-  --network ic \
-  --identity anonymous
-```
-
-Look for:
-
-```text
-Module hash: 0x<64-hex-sha256>
-```
-
-For an unchanged current profile, this should match the receipt's `module_hash`.
-
-This is only **current-state corroboration**. A later canister upgrade can legitimately make the live hash differ while the receipt's archival V3 evidence remains valid.
-
-> **Tool note:** current `dfx` versions may print a deprecation warning recommending `icp-cli`. For this optional corroboration step, that warning is not itself a failure; use the returned `Module hash` result. The published procedure can migrate to `icp-cli` separately without changing the verification claim.
-
-## 5. V3B — independently rebuild the profile WASM
-
-V3B is a supplementary, non-gating code-provenance step.
-
-For the accepted live release, the product/build provenance anchor is:
-
-`14fb08c40f42419a4ca767982c8f797351025ff1`
-
-The target is the final **post-`ic-wasm shrink` profile canister WASM**:
-
-`wasm_out/profile_canister.wasm`
-
-Do not substitute the factory hash, frontend hash, bulletin-board hash or verifier-binary hash.
-
-### Obtain the exact public source
-
-A robust non-developer path is the exact-commit public archive:
-
-```bash
-set -euo pipefail
-
-ANCHOR=14fb08c40f42419a4ca767982c8f797351025ff1
-
-curl -fL \
-  --retry 5 \
-  --retry-delay 2 \
-  -o "daffydefs-${ANCHOR}.tar.gz" \
+ANCHOR=e2b073971aae5f1c97edee59875bec15628821c7
+curl -fL --retry 5 --retry-delay 2 -o "daffydefs-${ANCHOR}.tar.gz" \
   "https://codeload.github.com/Together-Alone-Ventures/daffydefs/tar.gz/${ANCHOR}"
-
 tar -xzf "daffydefs-${ANCHOR}.tar.gz"
 cd "daffydefs-${ANCHOR}"
-```
-
-Using the exact archive avoids dependence on a user's local Git URL-rewrite configuration.
-
-A normal Git checkout at the exact commit is also acceptable.
-
-### Required build identity
-
-The reproducibility path is pinned to:
-
-- Rust `1.97.1`
-- target `wasm32-unknown-unknown`
-- `ic-wasm` `0.11.1`
-- exact Rust dependency resolution/checksums in `Cargo.lock`
-- exact TAV source snapshots recorded in `VENDORED_SOURCES.md`
-
-The repository's `.cargo/config.toml` redirects the TAV Git package identities used by Cargo to the disclosed local source snapshots under `vendor/`.
-
-Cargo may therefore display the original TAV Git URLs as **package identities** during the build. That does not mean the build secretly fetched those TAV sources from private repositories.
-
-### Build
-
-Run:
-
-```bash
 bash scripts/build-profile-repro.sh
-```
-
-Then:
-
-```bash
 sha256sum wasm_out/profile_canister.wasm
 ```
 
-For the accepted release, the expected post-shrink result is:
+Expected result:
 
 ```text
-cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9  wasm_out/profile_canister.wasm
+30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb  wasm_out/profile_canister.wasm
 ```
 
-Now compare that hash with the `module_hash` V3 attests in **your own receipt**.
+The committed lockfile pins public dependencies. The disclosed source snapshots and `.cargo/config.toml` supply:
 
-If they match, you have completed V3B for that receipt:
+- MKTd02 / Leaf: `2a10bf3ee056d3ff53327ca23654609a6f430c5e` (`vendor/mktd02/`).
+- zombie-core: `223723885cfbb548d6b218aee8500b073fda4b58` (`vendor/zombie-core/`).
 
-**public source/build materials → independently rebuilt profile WASM → SHA-256 → same module hash certified in the deletion receipt.**
+Compare the rebuilt hash with the receipt's attested `module_hash`. This is supplementary build provenance, not an additional validity gate. The canonical recipe reproduced the accepted hash during the capsule freeze; no reproduction on physically distinct hardware is claimed.
 
-## 6. Optional pinned-container reproduction
+## Accepted worked example — 16 Sep 2026
 
-The repository also supplies a pinned Debian environment wrapper:
+The normal demo uses your own receipt. The repository also banks the exact untouched browser JSON from the accepted ceremony:
 
-```bash
-bash scripts/build-capsule-container.sh
-```
+- Implementation: `e2b073971aae5f1c97edee59875bec15628821c7`.
+- Profile: `petd6-ciaaa-aaaaj-qshha-cai`.
+- Receipt: `90347766510e664818831810d7c53091936192dae63db48bb194b96e00006149`.
+- File: `docs/acceptance/receipts/deletion-receipt-90347766.json` in the frozen repository (banked after the implementation anchor above).
+- File SHA-256: `1a12152b8869814ddd80ef11234864211fa7f5119e0b7eebf4e9e46d8a6b62d1`; size: 5704 bytes. The banked copy is byte-identical to the browser download.
+- Canonical, deployed and receipt-attested profile hash: `30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb`.
 
-It invokes the same canonical profile build recipe.
+Both the packaged verifier and the ceremony's fresh source-built verifier at `560e483b047209ee83463dfab29da07acb422feb` returned V1 PASS, V2 PASS, V3A PASS and overall validity PASS on the untouched receipt, using the mainnet trust root. V3B was not evaluated. V2 certificate delta: 1.257879103 s; V3A finalisation delay: 1.281779666 s (ROUTINE).
 
-The current evidence includes multiple clean same-host reproductions and a pinned Debian tracked-files-only container reproduction with no TAV credentials.
-
-No reproduction on physically distinct hardware is claimed.
-
-## Accepted worked example
-
-A fresh mainnet acceptance receipt is retained only as a worked example and test artifact:
-
-- profile canister: `5ff4g-7qaaa-aaaaj-qsehq-cai`
-- receipt ID: `050f152899a866cd16cf3b7b9f3d49f17ae6d58499ac27d3fb7793dabc0963e6`
-- receipt file: `docs/acceptance/receipts/deletion-receipt-050f1528.json`
-- receipt-file SHA-256: `add5a6c5f3a996fa6e24184823e74ea1ff1bef0949fb86dff91b1cf04d2bf3e2`
-- V3-attested profile hash: `cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
-
-For that exact receipt:
-
-- V1: PASS
-- V2: PASS
-- V3: SUBNET-ATTESTED
-- reference verifier exit: `0`
-- live module corroboration: MATCH
-- independent V3B rebuild: same `cb16ee...` hash
-
-The normal demo should still use **your own newly generated receipt**.
-
-## What to trust — and what not to
-
-A successful V1/V2/V3A with V3B supplementary exercise still has residual assumptions.
-
-V2 and V3 rely on the public Internet Computer trust root and the IC subnet/NNS certificate model. The subnet certifies relevant state; it does not act as an oracle for copies outside the certified system boundary.
-
-The DaffyDefs operator can later upgrade or stop application canisters. An already-finalised receipt preserves archival code-identity evidence for the deletion it records.
-
-The supplied reference verifier is not a compliance certification or independent trust anchor.
-
-For the detailed technical rules, see:
-
-- `docs/VERIFICATION_PROCEDURE.md`
-- `docs/RESIDUAL_TRUST_STATEMENT.md`
-- `docs/REFERENCE_VERIFIER.md`
-- `RELEASES.md`
-- `VENDORED_SOURCES.md`
+The operator can later upgrade application canisters. A saved finalized receipt preserves the archival evidence for its recorded deletion event; it is not a claim about every external copy or future application state.
