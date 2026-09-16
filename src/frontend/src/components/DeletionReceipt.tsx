@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  buildCvdrExport,
+  serializeCvdr,
   cvdrFileName,
   downloadCvdr,
   exportCompleteness,
@@ -31,7 +31,7 @@ export default function DeletionReceipt({
   const completeness = exportCompleteness(receipt);
 
   const handleCopy = async () => {
-    const json = JSON.stringify(buildCvdrExport(receipt), null, 2);
+    const json = serializeCvdr(receipt);
     try {
       await navigator.clipboard.writeText(json);
     } catch {
@@ -71,10 +71,10 @@ export default function DeletionReceipt({
         : "Preparing your Deletion Receipt";
 
   const intro = isFinalized
-    ? "Your personal data has been cryptographically tombstoned. This Cryptographically Verifiable Deletion Receipt (CVDR) is your proof that the deletion took place. You can independently verify it at any time using the hashes below and the ICP subnet's public key."
+    ? "DaffyDefs has completed its deletion flow. This Cryptographically Verifiable Deletion Receipt (CVDR) lets you independently verify the certified receipt evidence and the code identity attested at finalisation time."
     : finalizationStatus === "pending"
-      ? "Your deletion has been recorded on-chain and the values below are final. The certificates that complete the receipt are still being attached — this will finish automatically next time you sign in."
-      : "Your deletion has been recorded on-chain. The certificates that complete the receipt are being collected and verified now.";
+      ? "Deletion event evidence has been recorded. The certificates that complete the receipt are still being attached — this will finish automatically next time you sign in."
+      : "Deletion event evidence has been recorded. The certificates that complete the receipt are being collected and verified now.";
 
   return (
     <div className="card">
