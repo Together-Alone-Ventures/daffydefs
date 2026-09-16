@@ -99,7 +99,6 @@ export interface CvdrExport {
   bls_certificate: string | null;
   trust_root_key_id: string;
   module_hash_certificate: string | null;
-  timestamp_iso: string;
 }
 
 export function formatTimestampIso(ns: bigint): string {
@@ -130,7 +129,6 @@ export function buildCvdrExport(receipt: CvdrData): CvdrExport {
     module_hash_certificate: receipt.module_hash_certificate
       ? bytesToHex(receipt.module_hash_certificate)
       : null,
-    timestamp_iso: formatTimestampIso(receipt.timestamp),
   };
 }
 

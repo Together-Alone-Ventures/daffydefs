@@ -43,6 +43,25 @@ afterEach(() => {
 });
 
 describe("receipt export buttons", () => {
+  it("emits exactly the v5 wire fields without presentation fields", () => {
+    const text = serializeCvdr(receipt);
+    expect(text).not.toContain("timestamp_iso");
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual([
+      "protocol_version", "receipt_id", "canister_id", "record_id",
+      "pre_state_hash", "post_state_hash", "tombstone_hash", "deletion_event_hash",
+      "module_hash", "timestamp", "deletion_seq", "bls_certificate",
+      "trust_root_key_id", "module_hash_certificate",
+    ].sort());
+  });
+
+  it.each(["timestamp", "deletion_seq"] as const)("preserves exact u64 numbers for %s", (field) => {
+    for (const value of [0n, 9007199254740993n, 18446744073709551615n]) {
+      const text = serializeCvdr({ ...receipt, [field]: value });
+      expect(text).toContain(`"${field}": ${value},`);
+      expect(text).not.toContain(`"${field}": "`);
+    }
+  });
+
   it.each([false, true])("copies exact download JSON above 2^53 (clipboard fallback=%s)", async (fallback) => {
     vi.useFakeTimers();
     const writeText = fallback

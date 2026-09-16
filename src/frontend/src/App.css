@@ -479,3 +479,23 @@ body {
   cursor: default;
   opacity: 0.6;
 }
+
+.finalization-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.finalization-spinner {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 2px solid #334155;
+  border-top-color: #94a3b8;
+  border-radius: 50%;
+  animation: finalization-spin 0.9s linear infinite;
+}
+
+@keyframes finalization-spin {
+  to { transform: rotate(360deg); }
+}

@@ -22,6 +22,7 @@ import ProfileView from "./components/ProfileView";
 import ChallengeFeed from "./components/ChallengeFeed";
 import CreateChallenge from "./components/CreateChallenge";
 import ChallengeDetail from "./components/ChallengeDetail";
+import FinalizationProgress from "./components/FinalizationProgress";
 import DeletionReceipt from "./components/DeletionReceipt";
 import { CvdrData } from "./components/DeletionReceipt";
 import "./App.css";
@@ -613,13 +614,7 @@ function App() {
                   </p>
                 </div>
               )}
-              {finalizationStatus === "finalizing" && (
-                <div className="card">
-                  <p style={{ margin: 0, fontWeight: 600 }}>
-                    Preparing your Deletion Receipt — please don't close this window.
-                  </p>
-                </div>
-              )}
+              <FinalizationProgress status={finalizationStatus} />
               {finalizationStatus === "finalized" && (
                 <p className="muted">Deletion complete — receipt ready.</p>
               )}
