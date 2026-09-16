@@ -1,7 +1,19 @@
-# V3-A fixtures — provenance record (route (a))
+# v4 reference fixtures — provenance record
 
-> Note: 'V3-A' throughout this document = V3 (attested code identity) under the
-> ratified renumbering; the wholesale V3-A→V3 rename is a tracked backlog item.
+**Role (from the mktd02-v5 retrofit, 14 Sep 2026):** these are the **historical**
+V2/V3A fixtures. `v4_finalized_mainnet.json` is the DaffyDefs v4 reference CVDR:
+a genuine mainnet receipt that must keep verifying as
+`protocol_line: mktd02-v4 (historical)` with `validity: PASS` under
+`--trust-root mainnet` (asserted by `tests/historical_v4_reference.rs`, which
+also checks the sha256 pin below). The files moved from `fixtures/` to
+`tests/fixtures/v4/` with no byte change. The OpenChatZD fixtures
+(`a1_mainnet_cvdr.json`, `pocketic_e2e_cvdr.json`) stay in `fixtures/`.
+
+The rest of this record is kept as written at capture time. Its status lines,
+test counts and the pre-v5 `V4` step describe the v0.6/v0.7 verifier.
+
+> Note: V3A (subnet-attested code identity) is the label spelling ratified for
+> mktd02-v5; releases up to v0.7.0 printed it hyphenated.
 
 **Authority:** operator decision 15 Jul 2026 (route (a)); G flags-memo response
 (types accepted; exit semantics confirmed with the Pending-vs-incomplete
@@ -10,10 +22,8 @@ never synthesised. Under route (a): the **certificates** are real mainnet
 artifacts; a **receipt** wrapping them (for the composite) is test scaffolding,
 explicitly labelled.
 
-Status: fixture 1 **landed and validated**; fixture 2 (composite) **constrained
-— cannot be built honestly at this time** (see §2). Corpus cases 1 and 3 are
-un-ignored and green; `positive_subnet_attested_pass` remains `#[ignore]`d with
-the reason below.
+Status: both fixtures **landed and validated** (the original "composite
+constrained / positive ignored" status was superseded by §2).
 
 ---
 
@@ -75,15 +85,19 @@ here. `positive_subnet_attested_pass` is un-ignored against it (§ below).
 | module_hash cert | 1698 bytes, embedded (receipt-authoritative), real mainnet |
 | capture (UTC) | ceremony finalize 2026-07-21T08:34:31Z |
 | provenance SHAs | ceremony go-live `25f199f`; remediation `5ca421f` (see below) |
-| fixture file | `fixtures/v4_finalized_mainnet.json` |
-| fixture size | 8,898 bytes |
-| fixture sha256 (**durable pin**) | `d958ee3a958b70af0f197f5402e772cd009280b2e16e2471cf795063207a95d1` |
+| fixture file | `tests/fixtures/v4/v4_finalized_mainnet.json` (at capture: `fixtures/`) |
+| fixture size | 8,897 bytes |
+| fixture sha256 (**durable pin**) | `fad7ef92aaefc18f44e1e78f78f80c9a9444b0240ff9696698a4eced5520cd4b` |
+| previous sha256 (to v0.7.0) | `d958ee3a958b70af0f197f5402e772cd009280b2e16e2471cf795063207a95d1` (8,898 bytes). The only byte change is one hyphen removed from the label spelling inside the non-receipt `_provenance` note (now `archival V3A point`); every receipt field is unchanged. |
 | fixture build date (UTC) | 2026-07-22 |
 
-**Validation (not by inspection):** `mktd02-verify --receipt-file
-fixtures/v4_finalized_mainnet.json` → V1 PASS · V2 PASS · **V3-A SUBNET-ATTESTED**
-(delay 0.9s, under `MAX_FINALIZATION_DELAY_NS`) · V4 PASS; both certs verify under
-the built-in IC root. `positive_subnet_attested_pass` runs the same `verify_v3a`
+**Validation (not by inspection):** at capture, `mktd02-verify --receipt-file
+fixtures/v4_finalized_mainnet.json` gave V1, V2 and V4 passing and **V3A
+SUBNET-ATTESTED** (delay 0.9s, under `MAX_FINALIZATION_DELAY_NS`), with both certs
+verifying under the built-in IC root. From the v5 retrofit:
+`mktd02-verify --receipt-file tests/fixtures/v4/v4_finalized_mainnet.json --trust-root mainnet`
+gives `validity: PASS`, `protocol_line: mktd02-v4 (historical)`, and V1/V2/V3A
+each passing; no live query is involved. `positive_subnet_attested_pass` runs the same `verify_v3a`
 offline and asserts `FinalizedCandidate` + `SUBNET-ATTESTED` + delay-under-threshold,
 **and** (uniquely for the genuine artifact) V1's full recomputation.
 
@@ -91,13 +105,13 @@ offline and asserts `FinalizedCandidate` + `SUBNET-ATTESTED` + delay-under-thres
 profile code **at deletion time** — NOT the current live `y5izv` hash. The canister
 was legitimately upgraded to `07421692…` **after** finalization (Gate 2 R-b
 remediation), so a *live* V3 read shows `MISMATCH-EXPECTED with provenance
-(upgraded-since-deletion)`; the archival V3-A verdict against the frozen receipt is
+(upgraded-since-deletion)`; the archival V3A verdict against the frozen receipt is
 unaffected. This is the archival-verification point: a receipt attests the code
 identity at the moment of deletion, independent of later upgrades.
 
 ### Remediation provenance (why two SHAs)
 
-The 21 Jul ceremony finalized this receipt, but the §5.1 live verifier run V3-A
+The 21 Jul ceremony finalized this receipt, but the §5.1 live verifier run V3A
 false-failed: DaffyDefs' `mktd_get_receipt` export struct predated v4 and silently
 dropped `module_hash_certificate`, so network-fetch saw only one cert (the on-chain
 receipt was complete — proven at R-b). Remediation **R-a** (SHA `5ca421f`) exported
@@ -125,9 +139,9 @@ supersedes the composite entirely — which is why this fixture exists.
 ### Honesty boundary — resolved by the genuine artifact
 
 That boundary applied to the *synthetic composite*: its preimages were unknown, so
-it could not satisfy V1's recomputation while simultaneously binding V2/V3-A. The
+it could not satisfy V1's recomputation while simultaneously binding V2/V3A. The
 **genuine** Gate 2 receipt carries the real preimages, so V1 passes end to end
-alongside V2/V3-A. `positive_subnet_attested_pass` therefore asserts the V3-A
+alongside V2/V3A. `positive_subnet_attested_pass` therefore asserts the V3A
 positive path (six checks green → SUBNET-ATTESTED, cross-cert consistency, the
 three-state `FinalizedCandidate` classification) **and** V1's full recomputation —
 the composite's V1 restriction no longer applies to the real artifact.
@@ -158,5 +172,6 @@ taken — the Gate 2 ceremony supersedes both:
 
 Offline / real-cert cases green: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 + the v2/v3
 regression + the `classify_timing` boundary + the **positive subnet-attested path**
-(`positive_subnet_attested_pass`, fixture 2, now landed and un-ignored). Suite:
-**58 passed / 0 failed / 0 ignored**.
+(`positive_subnet_attested_pass`, fixture 2, now landed and un-ignored). Suite at
+capture: 58 passed / 0 failed / 0 ignored (historical count; see `cargo test`
+for the current suite).

@@ -35,15 +35,8 @@ echo "=========================================="
 # ----------------------------------------------------------
 echo ""
 echo "[1/11] Building profile_canister..."
-cargo build -p profile_canister --target $CARGO_TARGET --release
-
-# ----------------------------------------------------------
-# Step 2: Optimise profile_canister WASM
-# ----------------------------------------------------------
-echo "[2/11] Optimising profile_canister WASM..."
-SHRINK_CMD="ic-wasm $RELEASE_DIR/profile_canister.wasm -o $WASM_OUT/profile_canister.wasm shrink"
-echo "  Running: $SHRINK_CMD"
-$SHRINK_CMD
+# The canonical recipe is the sole producer of the profile artifact.
+bash "$PROJECT_ROOT/scripts/build-profile-repro.sh"
 
 # ----------------------------------------------------------
 # Step 3: Copy for factory's include_bytes!
@@ -56,7 +49,7 @@ cp "$WASM_OUT/profile_canister.wasm" "$PROJECT_ROOT/src/profile_factory/profile_
 # Step 4: Build profile_factory (embeds profile_canister WASM)
 # ----------------------------------------------------------
 echo "[4/11] Building profile_factory..."
-cargo build -p profile_factory --target $CARGO_TARGET --release
+cargo build -p profile_factory --target $CARGO_TARGET --release --locked
 
 # ----------------------------------------------------------
 # Step 5: Optimise profile_factory WASM
@@ -70,7 +63,7 @@ $SHRINK_CMD
 # Step 6: Build bulletin_board
 # ----------------------------------------------------------
 echo "[6/11] Building bulletin_board..."
-cargo build -p bulletin_board --target $CARGO_TARGET --release
+cargo build -p bulletin_board --target $CARGO_TARGET --release --locked
 
 # ----------------------------------------------------------
 # Step 7: Optimise bulletin_board WASM
@@ -98,7 +91,11 @@ for CANISTER in profile_canister profile_factory bulletin_board; do
 
     echo "  Checking $CANISTER..."
 
-    # Extract Candid from the final shipped WASM
+    # Extract Candid from the final shipped WASM when the optional tool exists.
+    if ! command -v candid-extractor >/dev/null 2>&1; then
+        echo "  SKIP: candid-extractor is not installed"
+        continue
+    fi
     if ! candid-extractor "$WASM_FILE" > "$DID_EXTRACTED" 2>/dev/null; then
         echo "  ERROR: candid-extractor failed on $WASM_FILE"
         echo "  This likely means ic-wasm shrink stripped the Candid custom section."

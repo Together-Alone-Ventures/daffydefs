@@ -41,7 +41,7 @@ function validInputs(overrides: Partial<GuardInputs> = {}): GuardInputs {
     canisterId: TEST_CANISTER,
     receiptId: "a".repeat(64),
     expectedModuleHash: MODULE_HASH,
-    commitment: COMMITMENT,
+    expectedCertifiedData: COMMITMENT,
     moduleHashTree: syntheticTree({ moduleHash: MODULE_HASH, timeNs: T_MODULE }),
     phaseBTree: syntheticTree({ certifiedData: COMMITMENT, timeNs: T_COMMIT }),
     phaseBTrustOk: true,
@@ -110,16 +110,16 @@ describe("G1–G5 vectors", () => {
   });
 
   it("3. wrong certified commitment → G3 fails, status FAIL", () => {
-    const report = evaluateGuard(validInputs({ commitment: hash32(0xcd) }));
-    expect(check(report, "G3_commitment_match")?.passed).toBe(false);
-    expect(check(report, "G3_commitment_match")?.detail).toMatch(/MISMATCH/);
+    const report = evaluateGuard(validInputs({ expectedCertifiedData: hash32(0xcd) }));
+    expect(check(report, "G3_certified_data_match")?.passed).toBe(false);
+    expect(check(report, "G3_certified_data_match")?.detail).toMatch(/MISMATCH/);
     expect(report.guardStatus).toBe("FAIL");
   });
 
   it("4. ordering negative → G5 fails and is never reported as a delay", () => {
     const report = evaluateGuard(
       validInputs({
-        // Module-hash certificate predates the commitment: impossible ordering.
+        // Module-hash certificate predates the expectedCertifiedData: impossible ordering.
         moduleHashTree: syntheticTree({
           moduleHash: MODULE_HASH,
           timeNs: T_COMMIT - 5n * 1_000_000_000n,

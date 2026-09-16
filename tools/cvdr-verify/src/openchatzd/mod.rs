@@ -15,6 +15,7 @@
 //!                      disagrees with the certificate's `/time`).
 
 pub mod body;
+pub mod index_attestation;
 pub mod package;
 pub mod witness;
 
@@ -28,7 +29,7 @@ use zombie_core::nns_keys;
 
 use crate::v2_certificate::verify_certificate_over_certified_data;
 use body::ReceiptBody;
-use package::{FrozenPackage, RevealPackage};
+use package::{FrozenPackage, PackageInput, RevealPackage};
 
 /// Default finalization window (spec §5): 24h, aligned to the retry cap.
 pub const DEFAULT_WINDOW_HOURS: u64 = 24;
@@ -118,6 +119,8 @@ pub struct Report {
     checks: Vec<(&'static str, Check)>,
     window_note: Option<String>,
     corroboration: Option<Check>,
+    /// INDEX code-identity outcome (spec §17); independent of commitment verdict.
+    index_attestation: Option<index_attestation::IndexAttestationResult>,
 }
 
 impl Report {
@@ -164,6 +167,20 @@ impl Report {
                 _ => println!(" Live module_hash vs --expect-module-hash (GATING):"),
             }
             println!("   [{}] {}", c.glyph(), c.text());
+        }
+        if let Some(idx) = &self.index_attestation {
+            println!();
+            println!(" INDEX code-identity (spec §14/§17 — orthogonal to commitment verdict):");
+            println!("   outcome : {}", idx.outcome);
+            println!("   timing  : {}", idx.timing);
+            println!("   detail  : {}", idx.detail);
+            if let Some(mh) = &idx.module_hash_hex {
+                println!("   module_hash : {}", mh);
+            }
+            if let Some(t) = idx.index_cert_time_ns {
+                println!("   INDEX cert /time : {} ns", t);
+            }
+            println!("   claim   : {}", index_attestation::OCZD_SUPPORTED_CLAIM);
         }
         println!();
         println!("============================================================");
@@ -298,6 +315,7 @@ pub fn verify_offline_with(
         checks: Vec::new(),
         window_note: None,
         corroboration: None,
+        index_attestation: None,
     };
 
     // --- Parse RECEIPT_BODY_V1 -------------------------------------------------
@@ -600,7 +618,8 @@ async fn corroborate_h_index(
 
 /// Entry point for `--package` mode. Returns the process exit code.
 pub async fn run(agent: &Agent, cfg: Config) -> Result<i32> {
-    let pkg = FrozenPackage::from_path(&cfg.package_path)?;
+    let input = PackageInput::from_path(&cfg.package_path)?;
+    let pkg = input.frozen();
     let reveal = match &cfg.reveal_path {
         Some(p) => Some(RevealPackage::from_path(p)?),
         None => None,
@@ -611,15 +630,32 @@ pub async fn run(agent: &Agent, cfg: Config) -> Result<i32> {
     let explicit_der = resolve_fixture_root_key(cfg.allow_fixture_root_key, pkg.root_key_der.as_deref());
     let verifier = NnsCertVerifier {
         trust_root_key_id: cfg.trust_root_key_id.clone(),
-        explicit_der,
+        explicit_der: explicit_der.clone(),
     };
     let mut report = verify_offline_with(
-        &pkg,
+        pkg,
         reveal.as_ref(),
         cfg.window_hours,
         cfg.expect_module_hash,
         &verifier,
     );
+
+    // INDEX attestation (spec §14.4 / §17): orthogonal to commitment verdict.
+    if let Some(body) = &report.body {
+        let trust_der: Vec<u8> = match &explicit_der {
+            Some(d) => d.clone(),
+            None => trust_root_der(&cfg.trust_root_key_id)?.to_vec(),
+        };
+        let idx = index_attestation::evaluate(
+            input.index_evidence_bytes(),
+            body.index_canister_id,
+            &body.h_index,
+            pkg.certificate_time,
+            body.receipt_committed_at_ns,
+            &trust_der,
+        );
+        report.index_attestation = Some(idx);
+    }
 
     // Live corroboration runs after the offline verdict, but — unlike v0.5.0 — it can
     // still DEGRADE that verdict: a failing live assertion rejects. It can never promote.

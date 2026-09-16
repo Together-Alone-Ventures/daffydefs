@@ -88,7 +88,7 @@ export default function DeletionReceipt({
 
       <p style={{ marginBottom: "1rem", color: "#94a3b8" }}>{intro}</p>
 
-      {/* Export completeness — a finalized v4 receipt carries BOTH certificates.
+      {/* Export completeness — a finalized receipt carries BOTH certificates.
           Downloading one that is missing either would verify as unattested. */}
       {finalizationStatus === "finalized" && !completeness.complete && (
         <div className="card" style={{ borderColor: "#f59e0b", marginBottom: "1rem" }}>
@@ -175,12 +175,12 @@ export default function DeletionReceipt({
           </span>
         </div>
 
-        <div className="profile-field">
+        {receipt.protocol_version !== "mktd02-v5" && <div className="profile-field">
           <span className="field-label">Certified Commitment</span>
           <span className="field-value mono" style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>
             {receipt.certified_commitment}
           </span>
-        </div>
+        </div>}
 
         <div className="profile-field">
           <span className="field-label">Module Hash</span>

@@ -1,0 +1,18 @@
+D01 line 49 [code-pointer sentence]:  Confirmed at `src/hashing.rs:149`.
+D02 line 59 [code-pointer parenthetical]:  (`src/hashing.rs:167`)
+D03 line 69 [code-pointer sentence]:  Confirmed at `src/hashing.rs:102`.
+D04 line 97 [code-pointer parenthetical]:  (`src/hashing.rs:55`–`:84`)
+D05 line 125 [code-pointer sentence]:  Confirmed at `src/tombstone.rs:22`.
+D06 line 140 [code-pointer parenthetical]:  (`mktd02/src/state.rs:15`–`:27`, MKTd02 repository)
+D07 line 156 [code-pointer parenthetical]:  (`mktd02/src/engine.rs:124`–`:133`, MKTd02 repository)
+D08 line 178 [code-pointer parenthetical]:  (`src/receipt.rs`)
+D09 line 193 [code-pointer clause]: ; confirmed at `src/receipt.rs:496`–`:516`
+D10 line 208 [code-pointer sentence]:  Confirmed at `src/receipt.rs:933`.
+D11 line 227 [code-pointer sentence]:  Code references are to `src/receipt.rs`.
+D12 line 250 [code-pointer sentence]:  The key order above is pinned for CBOR by `receipt.rs:2198`–`:2237`.
+D13 line 306 [code-pointer parenthetical]:  (`receipt.rs:1113`–`:1169`)
+D14 line 323 [code-pointer sentence]:  Confirmed at `receipt.rs:1008`–`:1019`.
+D15 line 331 [code-pointer sentence]:  Confirmed at `receipt.rs:252`–`:264`.
+D16 line 389 [code-pointer parenthetical]:  (`receipt.rs:521`)
+D17 line 433 [vector-result sentence]:  Uppercase and/or `0x`-prefixed hexadecimal and accepted byte-array inputs decode to the same receipt value as the canonical lowercase, unprefixed representation.
+D18 line 433 [vector-result sentence]:  Re-encoding produces the canonical wire form.

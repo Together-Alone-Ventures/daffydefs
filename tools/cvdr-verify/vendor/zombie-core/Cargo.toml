@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "zombie-core"
-version = "0.4.1"
+version = "0.5.0"
 build = false
 autolib = false
 autobins = false
@@ -30,6 +30,10 @@ local-replica = []
 [lib]
 name = "zombie_core"
 path = "src/lib.rs"
+
+[[test]]
+name = "v5_corpus"
+path = "tests/v5_corpus.rs"
 
 [dependencies]
 candid = "0.10"

@@ -170,6 +170,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is arbitrary float test data, not PI
     fn rejects_float() {
         let val = ciborium::Value::Float(3.14);
         let mut buf = Vec::new();

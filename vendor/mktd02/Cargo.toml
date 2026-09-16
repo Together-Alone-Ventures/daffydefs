@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "mktd02"
-version = "0.5.0"
+version = "0.6.0"
 build = false
 autolib = false
 autobins = false
@@ -50,4 +50,4 @@ optional = true
 
 [dependencies.zombie-core]
 git = "https://github.com/Together-Alone-Ventures/zombie-core"
-tag = "zombie-core-v0.4.0"
+rev = "223723885cfbb548d6b218aee8500b073fda4b58"

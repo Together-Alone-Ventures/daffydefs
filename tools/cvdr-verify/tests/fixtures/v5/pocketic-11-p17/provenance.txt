@@ -1,0 +1,11 @@
+Implementation-derived regression fixture; PocketIC 11.0.0 client/server.
+Topology: NNS + application subnet.
+Canister: 7tjcv-pp777-77776-qaaaa-cai
+Application subnet: j3hn4-tfek2-2dzwi-2fiwt-yl43g-lljef-o5tyt-oi44t-pnvrw-tbquz-bae
+Root source: pic.root_key() on this exact instance; root.der is unchanged returned DER.
+root.pem: PUBLIC KEY base64 encoding of root.der; Python standard-library round-trip checked.
+Receipt: engine stored v5 receipt via h_export_finalized_receipt_cbor / get_receipt / export::to_cbor_bytes.
+BLS bytes equal the query data certificate passed to existing finalization; delegation terminates at NNS.
+Cryptographic V2 verification is deferred to CVDR-Verify using --trust-root-pem root.pem.
+V3A: FAIL — fixture; module_hash_certificate remains vec![0x4D; 8].
+Receipt trust_root_key_id remains mainnet; explicit PocketIC root required.

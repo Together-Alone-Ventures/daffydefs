@@ -28,10 +28,9 @@
 //! finalization lock is held. Phase B and Phase C read this persisted value
 //! directly. This avoids any recomputation coupling to mutable runtime values.
 
-use crate::certified::read_certified_commitment;
 use crate::storage::{with_storage, with_storage_mut, Hash32, ReceiptBytes};
 use zombie_core::nns_keys;
-use zombie_core::receipt::DeletionReceipt;
+use zombie_core::receipt::DeletionReceiptV5;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -43,10 +42,7 @@ pub enum FinalizationError {
     /// No receipt is pending finalization (lock not held).
     NoPendingReceipt,
     /// The provided receipt_id does not match the pending receipt.
-    ReceiptIdMismatch {
-        expected: String,
-        provided: String,
-    },
+    ReceiptIdMismatch { expected: String, provided: String },
     /// The receipt already has a BLS certificate (already finalized).
     AlreadyFinalized,
     /// The caller is not a controller of this canister.
@@ -60,23 +56,26 @@ pub enum FinalizationError {
 impl core::fmt::Display for FinalizationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NoPendingReceipt => write!(
-                f, "MKTd02: no receipt pending finalization"
-            ),
+            Self::NoPendingReceipt => write!(f, "MKTd02: no receipt pending finalization"),
             Self::ReceiptIdMismatch { expected, provided } => write!(
-                f, "MKTd02: receipt_id mismatch — expected {expected}, got {provided}"
+                f,
+                "MKTd02: receipt_id mismatch — expected {expected}, got {provided}"
             ),
             Self::AlreadyFinalized => write!(
-                f, "MKTd02: receipt already finalized (bls_certificate is present)"
+                f,
+                "MKTd02: receipt already finalized (bls_certificate is present)"
             ),
             Self::NotController => write!(
-                f, "MKTd02: caller is not a controller — only controllers can finalize receipts"
+                f,
+                "MKTd02: caller is not a controller — only controllers can finalize receipts"
             ),
             Self::ReceiptNotFound => write!(
-                f, "MKTd02: pending receipt not found in storage (internal error)"
+                f,
+                "MKTd02: pending receipt not found in storage (internal error)"
             ),
             Self::EncodingFailed(e) => write!(
-                f, "MKTd02: failed to re-encode receipt after finalization: {e}"
+                f,
+                "MKTd02: failed to re-encode receipt after finalization: {e}"
             ),
         }
     }
@@ -88,16 +87,17 @@ impl core::fmt::Display for FinalizationError {
 
 /// Data returned by `get_pending_certificate()`.
 ///
-/// All three fields are needed by the orchestrator to call
-/// `finalize_receipt()` in Phase C.
+/// The orchestrator needs these to call `finalize_receipt()` in Phase C.
+///
+/// mktd02-v5 (R-D): no `certified_commitment` field — there is no commitment,
+/// and base+3 is reserved (never read). The certificate's certified_data is
+/// the pending receipt's `deletion_event_hash`.
 #[derive(Debug, Clone)]
 pub struct PendingCertificate {
     /// Receipt ID of the pending receipt (hex-encoded for convenience).
     pub receipt_id_hex: String,
     /// Raw receipt_id bytes (for passing to finalize_receipt).
     pub receipt_id: [u8; 32],
-    /// The certified commitment bytes currently in certified data.
-    pub certified_commitment: [u8; 32],
     /// The BLS certificate blob from `ic0.data_certificate()`.
     pub certificate: Vec<u8>,
 }
@@ -124,16 +124,12 @@ pub fn get_pending_certificate() -> Option<PendingCertificate> {
     // Source of truth: pending receipt_id persisted in Phase A.
     let receipt_id = read_pending_receipt_id()?;
 
-    // Read certified commitment
-    let certified_commitment = read_certified_commitment();
-
     // Get BLS certificate from IC runtime (query context only)
     let certificate = ic_cdk::api::data_certificate()?;
 
     Some(PendingCertificate {
         receipt_id_hex: hex::encode(receipt_id),
         receipt_id,
-        certified_commitment,
         certificate,
     })
 }
@@ -159,7 +155,7 @@ pub fn get_pending_certificate() -> Option<PendingCertificate> {
 ///   off-canister helper from a `read_state` over `/canister/<id>/module_hash`.
 ///   Stored **opaquely** — MKTd02 does not parse or validate it (no
 ///   certificate-parsing dependency in the canister; the verifier is the trust
-///   point). A malformed blob can be stored but can never receive a V3-A pass.
+///   point). A malformed blob can be stored but can never receive a V3A pass.
 ///
 /// The NNS root key ID is determined automatically from the build
 /// configuration via `zombie_core::nns_keys::active_key_id()`. Integrators
@@ -256,19 +252,19 @@ fn finalize_locked_receipt(
     }
 
     // Load the receipt from storage
-    let receipt_bytes = with_storage(|s| {
-        s.receipts.get(&Hash32(*receipt_id))
-    });
+    let receipt_bytes = with_storage(|s| s.receipts.get(&Hash32(*receipt_id)));
 
     let receipt_bytes = match receipt_bytes {
         Some(rb) => rb,
         None => return Err(FinalizationError::ReceiptNotFound),
     };
 
-    let mut receipt: DeletionReceipt = ciborium::from_reader(receipt_bytes.0.as_slice())
-        .map_err(|e| FinalizationError::EncodingFailed(
-            format!("failed to decode pending receipt: {e}")
-        ))?;
+    // The pending receipt is always engine-produced (mktd02-v5): an upgrade
+    // cannot occur while a receipt is pending (the lock traps it).
+    let mut receipt: DeletionReceiptV5 = ciborium::from_reader(receipt_bytes.0.as_slice())
+        .map_err(|e| {
+            FinalizationError::EncodingFailed(format!("failed to decode pending receipt: {e}"))
+        })?;
 
     // Guard: must not already be finalized
     if receipt.bls_certificate.is_some() {
@@ -306,7 +302,9 @@ pub fn is_pending_finalization() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{finalize_receipt_after_host_authorization, read_pending_receipt_id, FinalizationError};
+    use super::{
+        finalize_receipt_after_host_authorization, read_pending_receipt_id, FinalizationError,
+    };
     use crate::nonce::increment_deletion_seq;
     use crate::storage::{
         acquire_finalization_lock, is_finalization_locked, pending_receipt_id,
@@ -316,7 +314,7 @@ mod tests {
     use candid::Principal;
     use ic_stable_structures::memory_manager::MemoryManager;
     use ic_stable_structures::DefaultMemoryImpl;
-    use zombie_core::receipt::{DeletionReceipt, ProtocolVersion};
+    use zombie_core::receipt::{AnyDeletionReceipt, DeletionReceiptV5, ProtocolVersion};
 
     fn setup_test_storage(base: u8) {
         let mm = MemoryManager::init(DefaultMemoryImpl::default());
@@ -325,17 +323,18 @@ mod tests {
 
     /// Build a pending (un-finalized) receipt and place it in storage under
     /// `receipt_id`. `bls_certificate` is `None`, mimicking a Phase-A receipt.
+    /// `deletion_event_hash` is non-zero: zombie-core refuses to serialise a
+    /// v5 receipt with an all-zero one (`invalid-event-hash:zero`).
     fn insert_pending_receipt(receipt_id: [u8; 32]) {
-        let receipt = DeletionReceipt {
-            protocol_version: ProtocolVersion::V4.into(),
+        let receipt = DeletionReceiptV5 {
+            protocol_version: ProtocolVersion::V5.into(),
             receipt_id,
             canister_id: Principal::anonymous(),
             record_id: vec![1, 2, 3],
             pre_state_hash: [0u8; 32],
             post_state_hash: [0u8; 32],
             tombstone_hash: [0u8; 32],
-            deletion_event_hash: [0u8; 32],
-            certified_commitment: [0u8; 32],
+            deletion_event_hash: [0x5E; 32],
             module_hash: [0u8; 32],
             timestamp: 0,
             deletion_seq: 0,
@@ -350,7 +349,7 @@ mod tests {
         });
     }
 
-    fn load_receipt(receipt_id: [u8; 32]) -> DeletionReceipt {
+    fn load_receipt(receipt_id: [u8; 32]) -> DeletionReceiptV5 {
         let bytes = with_storage(|s| s.receipts.get(&Hash32(receipt_id))).unwrap();
         ciborium::from_reader(bytes.0.as_slice()).unwrap()
     }
@@ -387,16 +386,26 @@ mod tests {
         acquire_finalization_lock();
         set_pending_receipt_id(rid);
 
-        let res = finalize_receipt_after_host_authorization(&rid, vec![0xAA, 0xBB], vec![0xCC, 0xDD]);
+        let res =
+            finalize_receipt_after_host_authorization(&rid, vec![0xAA, 0xBB], vec![0xCC, 0xDD]);
         assert!(res.is_ok(), "expected Ok, got {res:?}");
-        assert!(!is_finalization_locked(), "lock must be released after finalize");
+        assert!(
+            !is_finalization_locked(),
+            "lock must be released after finalize"
+        );
 
         let decoded = load_receipt(rid);
         assert_eq!(decoded.bls_certificate, Some(vec![0xAA, 0xBB]));
         assert_eq!(decoded.module_hash_certificate, Some(vec![0xCC, 0xDD]));
-        assert_eq!(decoded.trust_root_key_id, zombie_core::nns_keys::active_key_id());
+        assert_eq!(
+            decoded.trust_root_key_id,
+            zombie_core::nns_keys::active_key_id()
+        );
         // Both certificates present -> FinalizedCandidate (protocol-aware v4 rule).
-        assert_eq!(decoded.state(), zombie_core::receipt::ReceiptState::FinalizedCandidate);
+        assert_eq!(
+            decoded.state(),
+            zombie_core::receipt::ReceiptState::FinalizedCandidate
+        );
     }
 
     #[test]
@@ -420,7 +429,10 @@ mod tests {
         setup_test_storage(112);
         // No lock acquired, no pending id set.
         let res = finalize_receipt_after_host_authorization(&[0x44; 32], vec![0x01], vec![0x02]);
-        assert!(matches!(res, Err(FinalizationError::NoPendingReceipt)), "got {res:?}");
+        assert!(
+            matches!(res, Err(FinalizationError::NoPendingReceipt)),
+            "got {res:?}"
+        );
     }
 
     #[test]
@@ -440,7 +452,10 @@ mod tests {
         acquire_finalization_lock();
         set_pending_receipt_id(rid);
         let res = finalize_receipt_after_host_authorization(&rid, vec![0x02], vec![0x03]);
-        assert!(matches!(res, Err(FinalizationError::AlreadyFinalized)), "got {res:?}");
+        assert!(
+            matches!(res, Err(FinalizationError::AlreadyFinalized)),
+            "got {res:?}"
+        );
     }
 
     // --- v0.5.0 / mktd02-v4: two-certificate finalization -----------------
@@ -462,15 +477,21 @@ mod tests {
             .expect("finalize ok");
 
         let decoded = load_receipt(rid);
-        assert_eq!(decoded.protocol_version, "mktd02-v4");
-        assert_eq!(decoded.state(), zombie_core::receipt::ReceiptState::FinalizedCandidate);
+        assert_eq!(decoded.protocol_version, "mktd02-v5");
+        assert_eq!(
+            decoded.state(),
+            zombie_core::receipt::ReceiptState::FinalizedCandidate
+        );
 
         // Round-trip via the authoritative CBOR export path.
-        let cbor = crate::export::to_cbor_bytes(&decoded);
-        let reloaded: DeletionReceipt = ciborium::from_reader(cbor.as_slice()).unwrap();
+        let cbor = crate::export::to_cbor_bytes(&AnyDeletionReceipt::V5(decoded.clone()));
+        let reloaded: DeletionReceiptV5 = ciborium::from_reader(cbor.as_slice()).unwrap();
         assert_eq!(reloaded.bls_certificate, Some(bls));
         assert_eq!(reloaded.module_hash_certificate, Some(module));
-        assert_eq!(reloaded.state(), zombie_core::receipt::ReceiptState::FinalizedCandidate);
+        assert_eq!(
+            reloaded.state(),
+            zombie_core::receipt::ReceiptState::FinalizedCandidate
+        );
     }
 
     /// JSON export counterpart of the CBOR round-trip lock: finalize a v4 receipt
@@ -497,9 +518,9 @@ mod tests {
         let decoded = load_receipt(rid);
 
         // Round-trip via the JSON export path.
-        let json = crate::export::to_json(&decoded);
-        let reloaded: DeletionReceipt = serde_json::from_str(&json).unwrap();
-        assert_eq!(reloaded.protocol_version, "mktd02-v4");
+        let json = crate::export::to_json(&AnyDeletionReceipt::V5(decoded.clone()));
+        let reloaded: DeletionReceiptV5 = serde_json::from_str(&json).unwrap();
+        assert_eq!(reloaded.protocol_version, "mktd02-v5");
         assert_eq!(reloaded.bls_certificate, Some(bls));
         assert_eq!(reloaded.module_hash_certificate, Some(module));
         assert_eq!(
@@ -531,7 +552,10 @@ mod tests {
         finalize_receipt_after_host_authorization(&rid, vec![0x01], vec![0x02]).expect("ok");
         let done = load_receipt(rid);
         assert!(done.bls_certificate.is_some() && done.module_hash_certificate.is_some());
-        assert_ne!(done.state(), zombie_core::receipt::ReceiptState::InvalidIncompleteFinalization);
+        assert_ne!(
+            done.state(),
+            zombie_core::receipt::ReceiptState::InvalidIncompleteFinalization
+        );
     }
 
     /// A pending (un-finalized) receipt exports with neither certificate and
@@ -543,11 +567,14 @@ mod tests {
         insert_pending_receipt(rid);
 
         let receipt = load_receipt(rid);
-        let cbor = crate::export::to_cbor_bytes(&receipt);
-        let reloaded: DeletionReceipt = ciborium::from_reader(cbor.as_slice()).unwrap();
+        let cbor = crate::export::to_cbor_bytes(&AnyDeletionReceipt::V5(receipt.clone()));
+        let reloaded: DeletionReceiptV5 = ciborium::from_reader(cbor.as_slice()).unwrap();
         assert_eq!(reloaded.bls_certificate, None);
         assert_eq!(reloaded.module_hash_certificate, None);
-        assert_eq!(reloaded.state(), zombie_core::receipt::ReceiptState::Pending);
+        assert_eq!(
+            reloaded.state(),
+            zombie_core::receipt::ReceiptState::Pending
+        );
     }
 
     /// A finalized receipt carrying two ~2 KB certificates serialises well
@@ -565,7 +592,7 @@ mod tests {
             .expect("finalize ok");
 
         let decoded = load_receipt(rid);
-        let cbor = crate::export::to_cbor_bytes(&decoded);
+        let cbor = crate::export::to_cbor_bytes(&AnyDeletionReceipt::V5(decoded.clone()));
         let size = cbor.len();
         assert!(
             size < 16384,
@@ -577,6 +604,9 @@ mod tests {
             "expected comfortable margin; got {size} B (bound 16384)"
         );
         // Sanity: the two 2 KB certs are actually in there.
-        assert!(size > 4096, "two 2KB certs must dominate the size; got {size} B");
+        assert!(
+            size > 4096,
+            "two 2KB certs must dominate the size; got {size} B"
+        );
     }
 }

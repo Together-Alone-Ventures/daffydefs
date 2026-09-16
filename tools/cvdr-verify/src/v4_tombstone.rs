@@ -1,8 +1,12 @@
+//! Diagnostic: live tombstone persistence. Point-in-time only; never part of
+//! validity.
+
 use anyhow::Result;
 use candid::{CandidType, Decode, Encode, Principal};
 use ic_agent::Agent;
 use serde::Deserialize;
-use zombie_core::receipt::DeletionReceipt;
+
+use crate::report::DiagnosticFact;
 
 #[derive(Debug, CandidType, Deserialize)]
 pub struct TombstoneStatus {
@@ -16,126 +20,74 @@ pub struct StateHashResponse {
     pub hash: serde_bytes::ByteBuf,
 }
 
-pub struct V4Result {
-    pub tombstone_ok: bool,
-    pub state_hash_ok: bool,
-    pub detail: String,
-}
+const NAME: &str = "live-tombstone-persistence";
 
-impl V4Result {
-    pub fn passed(&self) -> bool {
-        self.tombstone_ok && self.state_hash_ok
-    }
-
-    pub fn summary(&self) -> String {
-        if self.passed() {
-            "INFO — tombstone persistence (diagnostic, non-gating): PASS — tombstone intact, state hash matches".to_string()
-        } else {
-            format!("INFO — tombstone persistence (diagnostic, non-gating): FAIL — {}", self.detail)
-        }
-    }
-}
-
-pub async fn verify(
+pub async fn diagnose(
     agent: &Agent,
     canister_id: Principal,
-    receipt: &DeletionReceipt,
-) -> V4Result {
-    let post_state = receipt.post_state_hash;
-
-    // Check tombstone status
+    post_state_hash: [u8; 32],
+) -> DiagnosticFact {
+    let fact = |status, detail: String| DiagnosticFact {
+        name: NAME,
+        status,
+        detail,
+    };
     let tombstone = match query_tombstone_status(agent, canister_id).await {
         Ok(t) => t,
-        Err(e) => return V4Result {
-            tombstone_ok: false,
-            state_hash_ok: false,
-            detail: format!("tombstone status query failed: {}", e),
-        },
+        Err(e) => return fact("unavailable", format!("tombstone status query failed: {e}")),
     };
-
     if !tombstone.is_tombstoned {
-        return V4Result {
-            tombstone_ok: false,
-            state_hash_ok: false,
-            detail: "canister is not tombstoned".to_string(),
-        };
+        return fact(
+            "inconsistent",
+            "canister reports it is not tombstoned".to_string(),
+        );
     }
-
-    // Check current state hash matches post_state_hash
-    let current_hash = match query_state_hash(agent, canister_id).await {
-        Ok(h) => h,
-        Err(e) => return V4Result {
-            tombstone_ok: true,
-            state_hash_ok: false,
-            detail: format!("state hash query failed: {}", e),
-        },
-    };
-
-    if current_hash == post_state {
-        V4Result {
-            tombstone_ok: true,
-            state_hash_ok: true,
-            detail: String::new(),
-        }
-    } else {
-        V4Result {
-            tombstone_ok: true,
-            state_hash_ok: false,
-            detail: format!(
-                "state hash diverged (possible resurrection):\n    receipt:  {}\n    current: {}",
-                hex::encode(post_state),
-                hex::encode(current_hash)
+    match query_state_hash(agent, canister_id).await {
+        Err(e) => fact("unavailable", format!("state hash query failed: {e}")),
+        Ok(current) if current == post_state_hash => fact(
+            "consistent",
+            "tombstone intact; current state hash equals receipt post_state_hash".to_string(),
+        ),
+        Ok(current) => fact(
+            "inconsistent",
+            format!(
+                "state hash diverged (possible resurrection): receipt {} current {}",
+                hex::encode(post_state_hash),
+                hex::encode(current)
             ),
-        }
+        ),
     }
 }
 
 async fn query_tombstone_status(agent: &Agent, canister_id: Principal) -> Result<TombstoneStatus> {
-    let arg = Encode!()?;
     let response = agent
         .query(&canister_id, "mktd_get_tombstone_status")
-        .with_arg(arg)
+        .with_arg(Encode!()?)
         .call()
         .await
         .map_err(|e| anyhow::anyhow!("query mktd_get_tombstone_status failed: {}", e))?;
-
     Decode!(&response, TombstoneStatus)
         .map_err(|e| anyhow::anyhow!("failed to decode tombstone status: {}", e))
 }
 
 async fn query_state_hash(agent: &Agent, canister_id: Principal) -> Result<[u8; 32]> {
-    let arg = Encode!()?;
     let response = agent
         .query(&canister_id, "mktd_get_state_hash")
-        .with_arg(arg)
+        .with_arg(Encode!()?)
         .call()
         .await
         .map_err(|e| anyhow::anyhow!("query mktd_get_state_hash failed: {}", e))?;
 
-    // Try as StateHashResponse struct (record with certificate + hash as blobs)
-    if let Ok(resp) = Decode!(&response, StateHashResponse) {
-        let bytes: Vec<u8> = resp.hash.into_vec();
-        return bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("state hash is not 32 bytes"));
-    }
-
-    // Try as plain blob
-    if let Ok(hash_bytes) = Decode!(&response, serde_bytes::ByteBuf) {
-        let bytes: Vec<u8> = hash_bytes.into_vec();
-        return bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("state hash is not 32 bytes"));
-    }
-
-    // Try as hex string
-    if let Ok(hash_hex) = Decode!(&response, String) {
-        let bytes = hex::decode(&hash_hex)
-            .map_err(|e| anyhow::anyhow!("state hash hex decode failed: {}", e))?;
-        return bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("state hash is not 32 bytes"));
-    }
-
-    Err(anyhow::anyhow!("could not decode state hash response"))
+    let bytes: Vec<u8> = if let Ok(resp) = Decode!(&response, StateHashResponse) {
+        resp.hash.into_vec()
+    } else if let Ok(blob) = Decode!(&response, serde_bytes::ByteBuf) {
+        blob.into_vec()
+    } else if let Ok(text) = Decode!(&response, String) {
+        hex::decode(&text).map_err(|e| anyhow::anyhow!("state hash hex decode failed: {}", e))?
+    } else {
+        return Err(anyhow::anyhow!("could not decode state hash response"));
+    };
+    bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("state hash is not 32 bytes"))
 }

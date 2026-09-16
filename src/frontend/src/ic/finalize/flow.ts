@@ -1,3 +1,4 @@
+import { receiptCertifiedData } from "./cvdr";
 // ============================================================
 // Browser finalisation flow — Phase B → read_state → guard → Phase C
 // ============================================================
@@ -12,7 +13,7 @@
 //   1. RECEIPT FIRST. Read the receipt before doing any work. A finalized
 //      receipt ends the flow immediately — this is what makes the whole thing
 //      idempotent across tab-closes, remounts and retries.
-//   2. Phase B query        → certificate + certified commitment + receipt id.
+//   2. Phase B query        → certificate + receipt id; v5 binds certified_data to deletion_event_hash.
 //   3. Anonymous read_state → /canister/<id>/module_hash certificate.
 //   4. G1–G5 guard          → FAIL blocks submission entirely.
 //   5. Phase C via factory  → 4-arg finalize_profile_receipt, II-signed.
@@ -276,7 +277,7 @@ async function runFinalize(params: FinalizeParams): Promise<FinalizeOutcome> {
     }
 
     const phaseBCertBytes = toUint8(phaseB.certificate);
-    const commitment = toUint8(phaseB.certified_commitment);
+
 
     // The receipt is the authority on which canister and which module hash the
     // guard must check — never the caller's ambient state.
@@ -316,6 +317,7 @@ async function runFinalize(params: FinalizeParams): Promise<FinalizeOutcome> {
     }
 
     const expectedModuleHash = fromHex(receipt.module_hash);
+    const expectedCertifiedData = fromHex(receiptCertifiedData(receipt));
 
     // --- 3. Anonymous read_state for the module hash -----------------------
     stage("module-hash");
@@ -349,7 +351,7 @@ async function runFinalize(params: FinalizeParams): Promise<FinalizeOutcome> {
       canisterId: receiptCanisterId,
       receiptId,
       expectedModuleHash,
-      commitment,
+      expectedCertifiedData,
       moduleHashTree: moduleHashCert.tree,
       phaseBTree: phaseBTree ?? emptyTree(),
       phaseBTrustOk,

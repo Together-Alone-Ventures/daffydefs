@@ -1,5 +1,22 @@
 # DaffyDefs — Release Record
 
+## Slice-5 v5 candidate (offline implementation)
+
+This candidate is not deployed and carries no mainnet acceptance claim.
+
+| Field | Value |
+|---|---|
+| Starting implementation SHA | `d41043deb35ff2187ecce6dd2199eac74eb8729a` |
+| MKTd02 / Leaf input | `2a10bf3ee056d3ff53327ca23654609a6f430c5e` |
+| zombie-core input | `223723885cfbb548d6b218aee8500b073fda4b58` |
+| Candidate profile-WASM SHA-256 | `30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb` |
+| Reproducibility | two clean local canonical builds byte-identical |
+| Verifier | CVDR-Verify `560e483b047209ee83463dfab29da07acb422feb`, `0.8.0` DRAFT |
+| Verifier binary SHA-256 | `b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c` |
+
+The factory build embeds the canonical profile bytes exactly. Mainnet deployment,
+fresh receipt capture and verifier PASS evidence remain future ceremony work.
+
 ## DaffyDefs Demo Capsule — live acceptance (15 Aug 2026)
 
 The current demo release binds the disclosed profile-canister source/build procedure to a fresh live mainnet receipt. Historical records below are retained only as evidence for earlier releases.

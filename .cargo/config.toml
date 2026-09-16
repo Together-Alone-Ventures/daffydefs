@@ -1,11 +1,11 @@
-[source."git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?tag=mktd02-v0.5.0"]
+[source."git+https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git?rev=2a10bf3ee056d3ff53327ca23654609a6f430c5e"]
 git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git"
-tag = "mktd02-v0.5.0"
+rev = "2a10bf3ee056d3ff53327ca23654609a6f430c5e"
 replace-with = "vendored-sources"
 
-[source."git+https://github.com/Together-Alone-Ventures/zombie-core?tag=zombie-core-v0.4.0"]
+[source."git+https://github.com/Together-Alone-Ventures/zombie-core?rev=223723885cfbb548d6b218aee8500b073fda4b58"]
 git = "https://github.com/Together-Alone-Ventures/zombie-core"
-tag = "zombie-core-v0.4.0"
+rev = "223723885cfbb548d6b218aee8500b073fda4b58"
 replace-with = "vendored-sources"
 
 [source.vendored-sources]

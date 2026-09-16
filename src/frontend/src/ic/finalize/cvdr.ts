@@ -1,31 +1,5 @@
-// ============================================================
-// CVDR mapping + export
-// ============================================================
-//
-// Maps the profile canister's `MktdReceiptResponse` (15 fields — see
-// src/profile_canister/src/lib.rs:144-161) onto the JSON shape CVDR-Verify
-// v0.6.1 reads, and nothing else.
-//
-// The consuming contract is `FileReceiptV3` in CVDR-Verify
-// mktd02/mktd02-verify/src/fetch.rs:160-185. Notes that constrain this file:
-//
-//   * FileReceipt is an UNTAGGED serde enum (fetch.rs:187-192): V3 is attempted
-//     first, and if any V3-required field is missing or ill-typed it silently
-//     falls back to V2 — which demands `subnet_id` and therefore fails with a
-//     confusing error. Every V3-required field below must always be emitted.
-//   * `bls_certificate` and `module_hash_certificate` accept null, a byte array,
-//     or a hex string (parse_optional_bytes_field, fetch.rs:354-385). Hex string
-//     is what we emit, matching the pre-existing export.
-//   * `timestamp` and `deletion_seq` accept a number or a string
-//     (parse_u64_field, fetch.rs:315-325). Emitted as strings: both are u64 and
-//     would lose precision through JSON numbers.
-//   * `record_id` accepts a byte array or a hex string, including "" (empty hex
-//     decodes to an empty vec) — parse_record_id_field, fetch.rs:327-352.
-//
-// EXPORT COMPLETENESS: a finalized v4 receipt carries BOTH certificates.
-// `module_hash_certificate` was the field missing from the earlier export and is
-// the reason a genuinely-finalized receipt could read as unattested downstream.
-
+// Receipt mapping and lossless v5 JSON export. Candid nat64 remains bigint.
+// Historical v4 retains its commitment and decimal-string JSON counters.
 export interface CvdrData {
   protocol_version: string;
   receipt_id: string;
@@ -35,7 +9,7 @@ export interface CvdrData {
   post_state_hash: string;
   tombstone_hash: string;
   deletion_event_hash: string;
-  certified_commitment: string;
+  certified_commitment?: string;
   module_hash: string;
   timestamp: bigint;
   deletion_seq: bigint;
@@ -85,7 +59,7 @@ export function mapReceiptToCvdr(r: any): CvdrData {
     post_state_hash: r.post_state_hash,
     tombstone_hash: r.tombstone_hash,
     deletion_event_hash: r.deletion_event_hash,
-    certified_commitment: r.certified_commitment,
+    ...(historicalCommitment(r) === undefined ? {} : { certified_commitment: historicalCommitment(r) }),
     module_hash: r.module_hash,
     timestamp: r.timestamp,
     deletion_seq: r.deletion_seq,
@@ -95,13 +69,15 @@ export function mapReceiptToCvdr(r: any): CvdrData {
   };
 }
 
-/** A receipt is finalized once both the BLS cert and its trust anchor are set. */
+/** Both certificate blobs and the engine trust-root identifier must be present. */
 export function isReceiptFinalized(r: any): boolean {
   if (!r) return false;
   const bls = unwrapOptBytes(r.bls_certificate);
+  const module = unwrapOptBytes(r.module_hash_certificate);
   return !!(
     bls &&
     (bls as { length: number }).length > 0 &&
+    module && module.length > 0 &&
     r.trust_root_key_id &&
     String(r.trust_root_key_id).length > 0
   );
@@ -116,10 +92,10 @@ export interface CvdrExport {
   post_state_hash: string;
   tombstone_hash: string;
   deletion_event_hash: string;
-  certified_commitment: string;
+  certified_commitment?: string;
   module_hash: string;
-  timestamp: string;
-  deletion_seq: string;
+  timestamp: string | bigint;
+  deletion_seq: string | bigint;
   bls_certificate: string | null;
   trust_root_key_id: string;
   module_hash_certificate: string | null;
@@ -145,10 +121,10 @@ export function buildCvdrExport(receipt: CvdrData): CvdrExport {
     post_state_hash: receipt.post_state_hash,
     tombstone_hash: receipt.tombstone_hash,
     deletion_event_hash: receipt.deletion_event_hash,
-    certified_commitment: receipt.certified_commitment,
+    ...(receipt.protocol_version === "mktd02-v5" ? {} : { certified_commitment: receipt.certified_commitment }),
     module_hash: receipt.module_hash,
-    timestamp: receipt.timestamp.toString(),
-    deletion_seq: receipt.deletion_seq.toString(),
+    timestamp: receipt.protocol_version === "mktd02-v5" ? receipt.timestamp : receipt.timestamp.toString(),
+    deletion_seq: receipt.protocol_version === "mktd02-v5" ? receipt.deletion_seq : receipt.deletion_seq.toString(),
     bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
     trust_root_key_id: receipt.trust_root_key_id,
     module_hash_certificate: receipt.module_hash_certificate
@@ -161,7 +137,7 @@ export function buildCvdrExport(receipt: CvdrData): CvdrExport {
 /**
  * Which certificate fields are present. Surfaced in the UI so a user can see —
  * before they walk away — whether the receipt they downloaded is the complete
- * v4 artefact.
+ * receipt.
  */
 export function exportCompleteness(receipt: CvdrData): {
   blsCertificate: boolean;
@@ -180,7 +156,7 @@ export function cvdrFileName(receipt: CvdrData): string {
 }
 
 export function downloadCvdr(receipt: CvdrData): void {
-  const json = JSON.stringify(buildCvdrExport(receipt), null, 2);
+  const json = serializeCvdr(receipt);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -188,4 +164,43 @@ export function downloadCvdr(receipt: CvdrData): void {
   a.download = cvdrFileName(receipt);
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Explicit version dispatch; never synthesize a v5 commitment. */
+function historicalCommitment(r: any): string | undefined {
+  if (r.protocol_version === "mktd02-v5") return undefined;
+  if (!String(r.protocol_version).startsWith("mktd02-v4")) {
+    throw new Error(`Unsupported profile receipt version: ${r.protocol_version}`);
+  }
+  const value = Array.isArray(r.certified_commitment) ? r.certified_commitment[0] : r.certified_commitment;
+  if (typeof value !== "string") throw new Error("Historical receipt missing certified_commitment");
+  return value;
+}
+
+/** Value certified by Phase B, selected from the stored receipt, never the query's claim. */
+export function receiptCertifiedData(r: any): string {
+  return r.protocol_version === "mktd02-v5" ? r.deletion_event_hash : historicalCommitment(r)!;
+}
+
+/** Serialize the flat wire object, emitting validated bigint digits as JSON numbers.
+ * No Number conversion, raw-JSON browser extension, or placeholder substitution.
+ * Other fields use JSON.stringify's escaping; untrusted strings cannot inject JSON.
+ */
+export function serializeCvdr(receipt: CvdrData): string {
+  historicalCommitment(receipt);
+  const wire = buildCvdrExport(receipt);
+  return "{\n" + Object.entries(wire).map(([key, value]) => {
+    let encoded: string | undefined;
+    if (typeof value === "bigint") {
+      if (value < 0n || value > 18446744073709551615n) throw new Error(`${key} outside u64`);
+      encoded = value.toString(10);
+    } else {
+      if ((key === "timestamp" || key === "deletion_seq") && receipt.protocol_version === "mktd02-v5") {
+        throw new Error(`${key} must remain bigint until serialization`);
+      }
+      encoded = JSON.stringify(value);
+    }
+    if (encoded === undefined) throw new Error(`Missing receipt field: ${key}`);
+    return `  ${JSON.stringify(key)}: ${encoded}`;
+  }).join(",\n") + "\n}";
 }

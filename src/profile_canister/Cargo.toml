@@ -18,13 +18,8 @@ serde = { version = "1", features = ["derive"] }
 ic-stable-structures = "0.7"
 shared = { path = "../shared" }
 
-# MKTd02: Cryptographically Verifiable Deletion Receipts (Gate 2 v4 adoption:
-# mktd02-v0.5.0 — subnet-attested code identity; 3-arg finalize adds the
-# module_hash_certificate). Released tag, never a path dep.
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", tag = "mktd02-v0.5.0", package = "mktd02" }
-
-# zombie-core: pin to EXACTLY what mktd02-v0.5.0 pins (mktd02/Cargo.toml @ tag
-# mktd02-v0.5.0 -> zombie-core-v0.4.0) to keep a single zombie-core in the graph.
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", tag = "zombie-core-v0.4.0" }
+# Exact inspected v5 Leaf/core inputs; source replacement is in .cargo/config.toml.
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", rev = "2a10bf3ee056d3ff53327ca23654609a6f430c5e", package = "mktd02" }
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "223723885cfbb548d6b218aee8500b073fda4b58" }
 
 hex = "0.4"

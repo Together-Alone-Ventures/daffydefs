@@ -22,8 +22,8 @@ cargo test
 
 | Module | Purpose |
 |---|---|
-| `receipt` | `DeletionReceipt`, `ProtocolVersion`, `ReceiptSummary`, `compute_receipt_id` |
-| `hashing` | `hash_with_tag`, `sha256`, domain separation tags, golden test vectors |
+| `receipt` | `DeletionReceiptV4`, `DeletionReceiptV5`, `AnyDeletionReceipt`, `ProtocolVersion`, `ReceiptState`, `ReceiptSummary`, `compute_receipt_id`, `deletion_event_hash_v5`, `deletion_event_hash_v1`, `genesis_certified_data`, `check_certified_data_not_genesis`, named rejections `ERR_RETIRED_FIELD_CERTIFIED_COMMITMENT` / `ERR_INVALID_EVENT_HASH_ZERO` / `ERR_NO_DELETION_CERTIFIED` |
+| `hashing` | `hash_with_tag`, `sha256`, domain separation tags (incl. `TAG_EVENT_V2`, `TAG_GENESIS`), retired tags (`RetiredTag`, `RETIRED_TAGS`), golden test vectors |
 | `tombstone` | `TOMBSTONE_CONSTANT` and derivation |
 | `serialisation` | CBOR encode/decode helpers for PII state |
 | `manifest` | `compute_manifest_hash`, `FieldDescriptor` |
@@ -32,7 +32,8 @@ cargo test
 
 Each receipt contains a `protocol_version` string (e.g. `"mktd02-v2"`) that
 tells verification tooling which hash formulas to use. Domain tags are stable
-across versions; the version field gates formula selection. Golden test vectors
+within a protocol line; retirements are recorded in `RETIRED_TAGS` and never
+reused. The version field gates formula selection. Golden test vectors
 in `hashing.rs` act as tripwires — any accidental protocol change breaks them
 immediately.
 

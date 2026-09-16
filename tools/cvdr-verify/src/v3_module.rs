@@ -1,199 +1,53 @@
-use anyhow::Result;
+//! V3A — subnet-attested code identity (offline, embedded certificates) and
+//! V3B — build provenance comparison.
+//!
+//! V3A validates the finalized receipt's stored `module_hash_certificate`
+//! (a subnet `read_state` over `/canister/<id>/module_hash`) together with its
+//! `bls_certificate`, against the explicit trust root. It attests the identity
+//! of the deployed module at certification time; it does not establish which
+//! code ran. The six checks and the timing rule are unchanged from v0.7.0:
+//!
+//! 1. both certificates validate against the trust root (BLS → NNS delegation);
+//! 2. the module-hash certificate's path is exactly `/canister/<id>/module_hash`;
+//! 3. the delegation's canister range covers the receipt's canister;
+//! 4. the certified module hash equals the receipt's `module_hash`;
+//! 5. `t(module_hash cert) ≥ t(bls cert)` — a negative delta is an ordering
+//!    failure;
+//! 6. a delta above `zombie_core::MAX_FINALIZATION_DELAY_NS` is
+//!    `DELAY_EXCEEDED`: a downgrade, not a rejection.
+//!
+//! The bls certificate's `certified_data` is bound to the value V2 compares
+//! for the line (v5: `deletion_event_hash`; v4: `certified_commitment`).
+
 use candid::Principal;
-use ic_agent::Agent;
-use zombie_core::receipt::DeletionReceipt;
+use zombie_core::{AnyDeletionReceipt, ReceiptState, MAX_FINALIZATION_DELAY_NS};
 
-pub enum V3Classification {
-    Match,
-    MismatchExpected,
-    MismatchSuspicious,
-    FullMatch,
-    MismatchExpectedWithProvenance,
-    Failed(String),
-}
+use crate::report::{CheckOutcome, ProtocolLine, TimingFact, REASON_INCOMPLETE_FINALISATION};
+use crate::trust_root::TrustRoot;
+use crate::v2_certificate::{
+    verify_certificate_over_certified_data, verify_certificate_over_module_hash,
+};
 
-pub struct V3Result {
-    pub classification: V3Classification,
-}
+pub const ERR_V3A_BLS_CERTIFICATE: &str = "v3a:bls-certificate";
+pub const ERR_V3A_MODULE_HASH_CERTIFICATE: &str = "v3a:module-hash-certificate";
+pub const ERR_V3A_MODULE_HASH_MISMATCH: &str = "v3a:module-hash-mismatch";
+pub const ERR_V3A_ORDERING_FAILURE: &str = "v3a:ordering-failure";
+pub const ERR_V3B_MODULE_HASH_MISMATCH: &str = "v3b:module-hash-mismatch";
 
-#[allow(dead_code)]
-impl V3Result {
-    pub fn passed(&self) -> bool {
-        // V3 doesn't have a hard pass/fail — only SUSPICIOUS is a concern
-        !matches!(
-            self.classification,
-            V3Classification::MismatchSuspicious | V3Classification::Failed(_)
-        )
-    }
+pub const REASON_V3A_LINE_PREDATES: &str = "line predates module-hash certification";
+pub const REASON_V3A_PENDING: &str = "pending — neither certificate embedded";
+pub const REASON_V3B_NO_PROVENANCE: &str = "no build provenance supplied (--wasm-hash)";
 
-    pub fn summary(&self) -> String {
-        match &self.classification {
-            V3Classification::Match =>
-                "INFO — live module corroboration (non-gating): MATCH — canister code unchanged since deletion".to_string(),
-            V3Classification::MismatchExpected =>
-                "INFO — live module corroboration (non-gating): MISMATCH-EXPECTED — canister upgraded since deletion \
-                 (receipt remains valid under prior code version)".to_string(),
-            V3Classification::MismatchSuspicious =>
-                "INFO — live module corroboration (non-gating): MISMATCH-SUSPICIOUS — receipt has dev zeros, \
-                 cannot verify code provenance".to_string(),
-            V3Classification::FullMatch =>
-                "INFO — live module corroboration (non-gating): FULL MATCH — code provenance confirmed end-to-end \
-                 (on-chain == receipt == published)".to_string(),
-            V3Classification::MismatchExpectedWithProvenance =>
-                "INFO — live module corroboration (non-gating): MISMATCH-EXPECTED with provenance — upgraded since deletion, \
-                 but deletion-time code confirmed against published hash".to_string(),
-            V3Classification::Failed(e) =>
-                format!("INFO — live module corroboration (non-gating): FAILED — {}", e),
-        }
-    }
-}
-
-/// Verify module hash: on-chain vs receipt, optionally vs published build.
-pub async fn verify(
-    agent: &Agent,
-    canister_id: Principal,
-    receipt: &DeletionReceipt,
-    published_hash: Option<[u8; 32]>,
-) -> V3Result {
-    let receipt_hash = receipt.module_hash;
-    let zeros = [0u8; 32];
-
-    // Fetch current on-chain module hash
-    let onchain_hash = match read_module_hash(agent, canister_id).await {
-        Ok(h) => h,
-        Err(e) => return V3Result {
-            classification: V3Classification::Failed(
-                format!("Could not read module hash: {}", e)
-            ),
-        },
-    };
-
-    // Three-way classification
-    if receipt_hash == zeros {
-        return V3Result { classification: V3Classification::MismatchSuspicious };
-    }
-
-    if onchain_hash == receipt_hash {
-        match published_hash {
-            Some(pub_hash) if pub_hash == receipt_hash => {
-                V3Result { classification: V3Classification::FullMatch }
-            }
-            Some(_) => V3Result {
-                classification: V3Classification::Failed(
-                    "on-chain matches receipt but differs from published hash — investigate"
-                        .to_string()
-                ),
-            },
-            None => V3Result { classification: V3Classification::Match },
-        }
-    } else {
-        match published_hash {
-            Some(pub_hash) if pub_hash == receipt_hash => {
-                V3Result { classification: V3Classification::MismatchExpectedWithProvenance }
-            }
-            _ => V3Result { classification: V3Classification::MismatchExpected },
-        }
-    }
-}
-
-/// Read the canister's current module hash via read_state.
-async fn read_module_hash(agent: &Agent, canister_id: Principal) -> Result<[u8; 32]> {
-    let hash_bytes = agent
-        .read_state_canister_info(canister_id, "module_hash")
-        .await
-        .map_err(|e| anyhow::anyhow!("read_state module_hash failed: {}", e))?;
-
-    hash_bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("module_hash from IC is not 32 bytes"))
-}
-
-// ===========================================================================
-// V3-A — archival attested-code-identity check (offline, embedded certificates)
-// ===========================================================================
-//
-// V3-A validates the finalized receipt's *stored* `module_hash_certificate`
-// (subnet read_state over /canister/<id>/module_hash) against its
-// `bls_certificate`. It requires NO live canister access and so coexists with
-// the live corroboration in `verify` above — archival verification from the
-// exported artifact alone. Ops-integrity/attestation vocabulary only; V1 remains
-// the transition-integrity gate.
-
-use zombie_core::nns_keys;
-use zombie_core::receipt::ReceiptState;
-use zombie_core::MAX_FINALIZATION_DELAY_NS;
-
-/// V3-A classification (ratified vocabulary).
-#[derive(Debug, Clone, PartialEq)]
-pub enum V3aClassification {
-    /// V3-A pass: both certificates valid under the same IC root, path/value/
-    /// range OK, and 0 ≤ t(module_hash) − t(bls) ≤ MAX_FINALIZATION_DELAY_NS.
-    SubnetAttested { delta_secs: f64 },
-    /// Valid, but the delay exceeds `MAX_FINALIZATION_DELAY_NS` — a downgrade
-    /// (LateFinalized-style), never a rejection.
-    DelayExceeded { delta_secs: f64 },
-    /// Non-attested but benign: a v2/v3 receipt (predates V3-A), or a v4 receipt
-    /// with no `module_hash_certificate`. Deployer-declared code identity.
-    DeployerDeclared,
-    /// `ReceiptState::Pending` (neither certificate). Export permitted; labelled
-    /// non-attested. Not a failure.
-    Pending,
-    /// A certificate is present but a normative check failed (present-but-invalid
-    /// — wrong value/canister/path/range/root, ordering failure, or incomplete
-    /// finalization). A red flag, never a pass.
-    Failed(String),
-}
-
-pub struct V3aResult {
-    pub classification: V3aClassification,
-}
-
-impl V3aResult {
-    fn of(classification: V3aClassification) -> Self {
-        Self { classification }
-    }
-
-    /// A present-but-invalid certificate is a hard failure. Absent/pending/
-    /// declared/late are non-attested but not process failures.
-    pub fn passed(&self) -> bool {
-        !matches!(self.classification, V3aClassification::Failed(_))
-    }
-
-    /// True only for a clean subnet-attested pass. Missing V3-A is never a pass.
-    /// (Used by the corpus; the CLI report surfaces the full classification.)
-    #[allow(dead_code)]
-    pub fn attested(&self) -> bool {
-        matches!(self.classification, V3aClassification::SubnetAttested { .. })
-    }
-
-    pub fn summary(&self) -> String {
-        match &self.classification {
-            V3aClassification::SubnetAttested { delta_secs } => format!(
-                "V3 — attested code identity: SUBNET-ATTESTED — code identity certified by the subnet \
-                 (finalization delay {delta_secs:.1}s)"
-            ),
-            V3aClassification::DelayExceeded { delta_secs } => format!(
-                "V3 — attested code identity: DELAY_EXCEEDED — attested but finalized {delta_secs:.1}s after \
-                 the commitment (> {}s threshold); downgrade, not rejection",
-                MAX_FINALIZATION_DELAY_NS / 1_000_000_000
-            ),
-            V3aClassification::DeployerDeclared =>
-                "V3 — attested code identity: DEPLOYER-DECLARED — no subnet-attested module-hash certificate \
-                 (non-attested)".to_string(),
-            V3aClassification::Pending =>
-                "V3 — attested code identity: PENDING — receipt not finalized (neither certificate); \
-                 non-attested, export permitted".to_string(),
-            V3aClassification::Failed(e) =>
-                format!("V3 — attested code identity: FAILED — {e}"),
-        }
-    }
-}
+/// Timing verdict labels (unchanged wire strings).
+pub const TIMING_ROUTINE: &str = "ROUTINE";
+pub const TIMING_DELAY_EXCEEDED: &str = "DELAY_EXCEEDED";
+pub const TIMING_ORDERING_FAILURE: &str = "ORDERING_FAILURE";
 
 /// Timing verdict from the two certificate `/time`s (pure; offline-testable).
 /// The security bound is certificate time only — never the receipt's internal
 /// deletion timestamp.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum TimingVerdict {
+pub enum TimingVerdict {
     Ordered { delta_ns: u64 },
     DelayExceeded { delta_ns: u64 },
     OrderingFailure { bls_ns: u64, module_ns: u64 },
@@ -202,7 +56,7 @@ pub(crate) enum TimingVerdict {
 /// t(module_hash cert) must be ≥ t(bls cert). A negative delta is an ordering
 /// FAILURE (never a delay verdict). delta > MAX_FINALIZATION_DELAY_NS is
 /// DELAY_EXCEEDED.
-pub(crate) fn classify_timing(bls_time_ns: u64, module_time_ns: u64) -> TimingVerdict {
+pub fn classify_timing(bls_time_ns: u64, module_time_ns: u64) -> TimingVerdict {
     if module_time_ns < bls_time_ns {
         return TimingVerdict::OrderingFailure {
             bls_ns: bls_time_ns,
@@ -217,122 +71,193 @@ pub(crate) fn classify_timing(bls_time_ns: u64, module_time_ns: u64) -> TimingVe
     }
 }
 
-/// V3-A: offline archival attested-code-identity verification from the receipt's
-/// embedded certificates alone. No agent / no live canister access.
-pub fn verify_v3a(receipt: &DeletionReceipt) -> V3aResult {
-    // v2/v3 predate subnet-attested identity — never classified by the v4
-    // three-state rule (the historical misclassification this guards against).
-    if receipt.protocol_version != "mktd02-v4" {
-        return V3aResult::of(V3aClassification::DeployerDeclared);
-    }
+/// V3A outcome plus its timing sub-result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct V3aEvaluation {
+    pub outcome: CheckOutcome,
+    pub timing: Option<TimingFact>,
+}
 
-    // Protocol-aware three-state rule (zombie-core `ReceiptState`), scoped to v4.
+impl V3aEvaluation {
+    fn only(outcome: CheckOutcome) -> Self {
+        V3aEvaluation {
+            outcome,
+            timing: None,
+        }
+    }
+}
+
+struct V3aInputs<'a> {
+    canister_id: Principal,
+    module_hash: [u8; 32],
+    bound_certified_data: [u8; 32],
+    bls_certificate: &'a Option<Vec<u8>>,
+    module_hash_certificate: &'a Option<Vec<u8>>,
+}
+
+/// V3A: offline archival attested-code-identity verification from the
+/// receipt's embedded certificates alone. No agent, no live canister access.
+pub fn verify_v3a(receipt: &AnyDeletionReceipt, trust_root: &TrustRoot) -> V3aEvaluation {
+    let line = ProtocolLine::of(receipt);
+    // v2/v3 predate subnet-attested identity — never classified by the
+    // three-state rule (the historical misclassification this guards against).
+    if !line.has_module_hash_certification() {
+        return V3aEvaluation::only(CheckOutcome::not_evaluated(REASON_V3A_LINE_PREDATES));
+    }
     match receipt.state() {
-        ReceiptState::Pending => return V3aResult::of(V3aClassification::Pending),
+        ReceiptState::Pending => {
+            return V3aEvaluation::only(CheckOutcome::not_evaluated(REASON_V3A_PENDING))
+        }
         ReceiptState::InvalidIncompleteFinalization => {
-            return V3aResult::of(V3aClassification::Failed(
-                "incomplete finalization: exactly one of bls_certificate / \
-                 module_hash_certificate is present"
-                    .to_string(),
+            return V3aEvaluation::only(CheckOutcome::fail(
+                REASON_INCOMPLETE_FINALISATION,
+                Some("exactly one of bls_certificate / module_hash_certificate is present".into()),
             ))
         }
-        ReceiptState::FinalizedCandidate => { /* both present — run the six checks */ }
+        ReceiptState::FinalizedCandidate => {}
     }
+    let inputs = match receipt {
+        AnyDeletionReceipt::V5(r) => V3aInputs {
+            canister_id: r.canister_id,
+            module_hash: r.module_hash,
+            bound_certified_data: r.deletion_event_hash,
+            bls_certificate: &r.bls_certificate,
+            module_hash_certificate: &r.module_hash_certificate,
+        },
+        AnyDeletionReceipt::V4(r) => V3aInputs {
+            canister_id: r.canister_id,
+            module_hash: r.module_hash,
+            bound_certified_data: r.certified_commitment,
+            bls_certificate: &r.bls_certificate,
+            module_hash_certificate: &r.module_hash_certificate,
+        },
+    };
+    attested_identity(&inputs, trust_root)
+}
 
-    let (Some(bls_cert), Some(mh_cert)) =
-        (&receipt.bls_certificate, &receipt.module_hash_certificate)
+fn attested_identity(inputs: &V3aInputs, trust_root: &TrustRoot) -> V3aEvaluation {
+    let (Some(bls_cert), Some(mh_cert)) = (inputs.bls_certificate, inputs.module_hash_certificate)
     else {
         // Unreachable under FinalizedCandidate; fail closed.
-        return V3aResult::of(V3aClassification::Failed(
-            "internal: FinalizedCandidate without both certificates".to_string(),
+        return V3aEvaluation::only(CheckOutcome::fail(
+            REASON_INCOMPLETE_FINALISATION,
+            Some("internal: FinalizedCandidate without both certificates".into()),
         ));
     };
+    let root = trust_root.der();
 
-    // Same trust-root context for both certificates.
-    let trust_id = receipt.trust_root_key_id.trim();
-    let Some(trust_key) = nns_keys::lookup_key(trust_id) else {
-        return V3aResult::of(V3aClassification::Failed(format!(
-            "unknown trust_root_key_id '{trust_id}'"
-        )));
-    };
-    let root = trust_key.der_bytes;
-
-    // Check 1 (bls) + 3 + certified_data == commitment; capture t(bls).
-    let bls_time_ns =
-        match crate::v2_certificate::verify_certificate_over_certified_data(
-            bls_cert,
-            receipt.canister_id,
-            &receipt.certified_commitment,
-            root,
-        ) {
-            Ok(o) => o.certificate_time_ns,
-            Err(e) => {
-                return V3aResult::of(V3aClassification::Failed(format!(
-                    "bls_certificate: {e}"
-                )))
-            }
-        };
-
-    // Checks 1 (module) + 2 (exact path) + 3; capture certified value + t(module).
-    let mh = match crate::v2_certificate::verify_certificate_over_module_hash(
-        mh_cert,
-        receipt.canister_id,
+    // Check 1 (bls) + 3 + certified_data binding; capture t(bls).
+    let bls_time_ns = match verify_certificate_over_certified_data(
+        bls_cert,
+        inputs.canister_id,
+        &inputs.bound_certified_data,
         root,
     ) {
+        Ok(o) => o.certificate_time_ns,
+        Err(e) => return V3aEvaluation::only(CheckOutcome::fail(ERR_V3A_BLS_CERTIFICATE, Some(e))),
+    };
+
+    // Checks 1 (module) + 2 (exact path) + 3; capture certified value + t(module).
+    let mh = match verify_certificate_over_module_hash(mh_cert, inputs.canister_id, root) {
         Ok(o) => o,
         Err(e) => {
-            return V3aResult::of(V3aClassification::Failed(format!(
-                "module_hash_certificate: {e}"
-            )))
+            return V3aEvaluation::only(CheckOutcome::fail(
+                ERR_V3A_MODULE_HASH_CERTIFICATE,
+                Some(e),
+            ))
         }
     };
 
     // Check 4: certified module hash == receipt's embedded module_hash.
-    if mh.certified_module_hash != receipt.module_hash {
-        return V3aResult::of(V3aClassification::Failed(format!(
-            "certified module_hash {} != receipt module_hash {}",
-            hex::encode(mh.certified_module_hash),
-            hex::encode(receipt.module_hash)
-        )));
+    if mh.certified_module_hash != inputs.module_hash {
+        return V3aEvaluation::only(CheckOutcome::fail(
+            ERR_V3A_MODULE_HASH_MISMATCH,
+            Some(format!(
+                "certified module_hash {} != receipt module_hash {}",
+                hex::encode(mh.certified_module_hash),
+                hex::encode(inputs.module_hash)
+            )),
+        ));
     }
 
     // Checks 5 & 6: ordering + delay threshold (certificate time is the bound).
-    match classify_timing(bls_time_ns, mh.certificate_time_ns) {
-        TimingVerdict::OrderingFailure { bls_ns, module_ns } => {
-            V3aResult::of(V3aClassification::Failed(format!(
-                "ordering failure: t(module_hash cert)={module_ns} < t(bls cert)={bls_ns}"
-            )))
-        }
-        TimingVerdict::DelayExceeded { delta_ns } => V3aResult::of(
-            V3aClassification::DelayExceeded {
-                delta_secs: delta_ns as f64 / 1e9,
-            },
+    let verdict = classify_timing(bls_time_ns, mh.certificate_time_ns);
+    let (label, delta_ns) = match verdict {
+        TimingVerdict::Ordered { delta_ns } => (TIMING_ROUTINE, Some(delta_ns)),
+        TimingVerdict::DelayExceeded { delta_ns } => (TIMING_DELAY_EXCEEDED, Some(delta_ns)),
+        TimingVerdict::OrderingFailure { .. } => (TIMING_ORDERING_FAILURE, None),
+    };
+    let timing = Some(TimingFact::V3aFinalizationDelay {
+        bls_certificate_time_ns: bls_time_ns,
+        module_hash_certificate_time_ns: mh.certificate_time_ns,
+        delta_secs: delta_ns.map(|d| d as f64 / 1e9),
+        max_finalization_delay_secs: MAX_FINALIZATION_DELAY_NS / 1_000_000_000,
+        verdict: label,
+    });
+    let outcome = match verdict {
+        TimingVerdict::OrderingFailure { bls_ns, module_ns } => CheckOutcome::fail(
+            ERR_V3A_ORDERING_FAILURE,
+            Some(format!("t(module_hash cert)={module_ns} < t(bls cert)={bls_ns}")),
         ),
-        TimingVerdict::Ordered { delta_ns } => V3aResult::of(
-            V3aClassification::SubnetAttested {
-                delta_secs: delta_ns as f64 / 1e9,
-            },
-        ),
+        // DELAY_EXCEEDED keeps its existing semantics: attested, downgraded in
+        // the timing sub-result, not a rejection.
+        _ => CheckOutcome::pass(format!(
+            "subnet certificate attests module hash {} on canister {} at certificate time {} ns — the identity of the deployed module at certification time",
+            hex::encode(mh.certified_module_hash),
+            inputs.canister_id,
+            mh.certificate_time_ns
+        )),
+    };
+    V3aEvaluation { outcome, timing }
+}
+
+/// V3B: compare the receipt's `module_hash` with supplied build provenance.
+/// NOT_EVALUATED unless provenance is supplied; never part of validity.
+pub fn verify_v3b(receipt: &AnyDeletionReceipt, published_hash: Option<[u8; 32]>) -> CheckOutcome {
+    let Some(published) = published_hash else {
+        return CheckOutcome::not_evaluated(REASON_V3B_NO_PROVENANCE);
+    };
+    let module_hash = match receipt {
+        AnyDeletionReceipt::V5(r) => r.module_hash,
+        AnyDeletionReceipt::V4(r) => r.module_hash,
+    };
+    if module_hash == published {
+        CheckOutcome::pass(format!(
+            "receipt module_hash equals the supplied build hash {} (comparison only; no rebuild performed)",
+            hex::encode(published)
+        ))
+    } else {
+        CheckOutcome::fail(
+            ERR_V3B_MODULE_HASH_MISMATCH,
+            Some(format!(
+                "receipt module_hash {} != supplied build hash {}",
+                hex::encode(module_hash),
+                hex::encode(published)
+            )),
+        )
     }
 }
 
 // ===========================================================================
-// V3-A corpus (offline). Cases needing a REAL module-hash certificate are
-// #[ignore]d pending the operator's mainnet capture (see report / fixtures).
+// V3A corpus (offline, real mainnet certificates).
 // ===========================================================================
 #[cfg(test)]
 mod v3a_tests {
     use super::*;
-    use candid::Principal;
     use zombie_core::receipt::ProtocolVersion;
+    use zombie_core::DeletionReceiptV4;
 
     const MH: [u8; 32] = [0x33; 32];
 
+    fn mainnet() -> TrustRoot {
+        TrustRoot::built_in("mainnet").unwrap()
+    }
+
     /// A v4 receipt with the given certificate presence. Cert bytes are dummy —
-    /// classification-only tests (Pending / Invalid / DeployerDeclared) return
-    /// before any BLS validation, so dummy bytes never reach the cert machinery.
-    fn v4_receipt(bls: Option<Vec<u8>>, mh_cert: Option<Vec<u8>>) -> DeletionReceipt {
-        DeletionReceipt {
+    /// classification-only tests (Pending / Invalid / line) return before any
+    /// BLS validation, so dummy bytes never reach the cert machinery.
+    fn v4_receipt(bls: Option<Vec<u8>>, mh_cert: Option<Vec<u8>>) -> DeletionReceiptV4 {
+        DeletionReceiptV4 {
             protocol_version: ProtocolVersion::V4.into(),
             receipt_id: [0x2A; 32],
             canister_id: Principal::from_text("aaaaa-aa").unwrap(),
@@ -352,8 +277,8 @@ mod v3a_tests {
     }
 
     fn load_a1() -> (Principal, Vec<u8>) {
-        use std::path::Path;
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/a1_mainnet_cvdr.json");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/a1_mainnet_cvdr.json");
         let raw = std::fs::read_to_string(&path).expect("A1 fixture present");
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let canister = Principal::from_text(v["canister_id"].as_str().unwrap()).unwrap();
@@ -362,14 +287,10 @@ mod v3a_tests {
     }
 
     /// Load the REAL mainnet module-hash certificate captured over
-    /// `/canister/5g26e.../module_hash` (operator capture, 15 Jul 2026;
-    /// see fixtures/README_V3A_PENDING.md). Returns the canister, the raw CBOR
-    /// certificate bytes, the pinned certified module hash, and the pinned
-    /// certificate `/time`.
+    /// `/canister/5g26e.../module_hash` (operator capture, 15 Jul 2026).
     fn load_v4_module_hash_cert() -> (Principal, Vec<u8>, [u8; 32], u64) {
-        use std::path::Path;
-        let path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/v4_module_hash_cert.json");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/v4/v4_module_hash_cert.json");
         let raw = std::fs::read_to_string(&path).expect("v4 module-hash fixture present");
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let canister = Principal::from_text(v["canister_id"].as_str().unwrap()).unwrap();
@@ -380,18 +301,15 @@ mod v3a_tests {
         (canister, cert, mh, time_ns)
     }
 
-    // --- Case 2: WRONG PATH (write-first negative) --------------------------
+    // --- Case 2: WRONG PATH -------------------------------------------------
     // The A1 real mainnet cert is over /canister/<id>/certified_data. Feeding it
-    // to the module_hash verifier MUST fail: lookup_value is path-agnostic, so a
-    // certificate over any other path can never be accepted as a module-hash
-    // attestation. Uses a REAL, BLS-valid cert (so the failure is the path, not
-    // the signature).
+    // to the module_hash verifier MUST fail (a REAL, BLS-valid cert, so the
+    // failure is the path, not the signature).
     #[test]
     fn case2_certificate_over_wrong_path_is_rejected() {
         let (canister, cert) = load_a1();
-        let der = zombie_core::nns_keys::lookup_key("mainnet").unwrap().der_bytes;
-        let res = crate::v2_certificate::verify_certificate_over_module_hash(&cert, canister, der);
-        let err = res.expect_err("a certified_data-only cert must not pass the module_hash check");
+        let err = verify_certificate_over_module_hash(&cert, canister, mainnet().der())
+            .expect_err("a certified_data-only cert must not pass the module_hash check");
         assert!(err.contains("module_hash not found"), "got: {err}");
     }
 
@@ -399,23 +317,22 @@ mod v3a_tests {
     #[test]
     fn case5_wrong_trust_root_fails_bls() {
         let (canister, cert) = load_a1();
-        // A syntactically-plausible but wrong DER key (not the NNS root).
-        let wrong_der: Vec<u8> = vec![0u8; zombie_core::nns_keys::lookup_key("mainnet").unwrap().der_bytes.len()];
-        let res = crate::v2_certificate::verify_certificate_over_module_hash(&cert, canister, &wrong_der);
-        assert!(res.is_err(), "cert must not validate under a wrong trust root");
+        let wrong_der: Vec<u8> = vec![0u8; mainnet().der().len()];
+        assert!(verify_certificate_over_module_hash(&cert, canister, &wrong_der).is_err());
     }
 
     // --- Cases 4 & 6: ordering failure (negative delta / stale certificate) --
     #[test]
     fn case4_negative_delta_is_ordering_failure() {
-        // module-hash cert time strictly before bls cert time.
         let v = classify_timing(2_000, 1_999);
-        assert!(matches!(v, TimingVerdict::OrderingFailure { .. }), "got {v:?}");
+        assert!(
+            matches!(v, TimingVerdict::OrderingFailure { .. }),
+            "got {v:?}"
+        );
     }
 
     #[test]
     fn case6_stale_module_cert_predating_commitment_is_ordering_failure() {
-        // "stale": module-hash cert captured well before the certified-data cert.
         let bls_t = 1_700_000_000_000_000_000u64;
         let module_t = bls_t - 10 * 1_000_000_000; // 10s earlier
         assert!(matches!(
@@ -428,192 +345,132 @@ mod v3a_tests {
     #[test]
     fn case10_delta_at_and_over_threshold() {
         let bls_t = 1_000_000_000u64;
-        // exactly at threshold => Ordered (clean).
         let at = bls_t + MAX_FINALIZATION_DELAY_NS;
-        assert!(matches!(classify_timing(bls_t, at), TimingVerdict::Ordered { .. }));
-        // one ns over => DelayExceeded (downgrade).
+        assert!(matches!(
+            classify_timing(bls_t, at),
+            TimingVerdict::Ordered { .. }
+        ));
         let over = bls_t + MAX_FINALIZATION_DELAY_NS + 1;
-        assert!(matches!(classify_timing(bls_t, over), TimingVerdict::DelayExceeded { .. }));
-        // zero delta => Ordered.
-        assert!(matches!(classify_timing(bls_t, bls_t), TimingVerdict::Ordered { delta_ns: 0 }));
+        assert!(matches!(
+            classify_timing(bls_t, over),
+            TimingVerdict::DelayExceeded { .. }
+        ));
+        assert!(matches!(
+            classify_timing(bls_t, bls_t),
+            TimingVerdict::Ordered { delta_ns: 0 }
+        ));
     }
 
     // --- Case 7: finalized-claim with exactly one certificate ---------------
     #[test]
     fn case7_incomplete_finalization_is_failed() {
-        // bls present, module-hash cert absent => ReceiptState::InvalidIncompleteFinalization.
-        let r = v4_receipt(Some(vec![0xDE, 0xAD]), None);
-        let res = verify_v3a(&r);
-        assert!(matches!(res.classification, V3aClassification::Failed(_)), "got {:?}", res.classification);
-        assert!(!res.passed(), "incomplete finalization must not pass");
-        // the other permutation (module cert present, bls absent) is also Failed.
-        let r2 = v4_receipt(None, Some(vec![0xBE, 0xEF]));
-        assert!(matches!(verify_v3a(&r2).classification, V3aClassification::Failed(_)));
+        for r in [
+            v4_receipt(Some(vec![0xDE, 0xAD]), None),
+            v4_receipt(None, Some(vec![0xBE, 0xEF])),
+        ] {
+            let res = verify_v3a(&AnyDeletionReceipt::V4(r), &mainnet());
+            assert_eq!(
+                res.outcome.error(),
+                Some(REASON_INCOMPLETE_FINALISATION),
+                "{:?}",
+                res.outcome
+            );
+        }
     }
 
-    // --- Case 8: pending exported => permitted, non-attested ----------------
+    // --- Case 8: pending => not evaluated, non-attested ---------------------
     #[test]
-    fn case8_pending_receipt_is_pending_non_attested() {
-        let r = v4_receipt(None, None);
-        let res = verify_v3a(&r);
-        assert_eq!(res.classification, V3aClassification::Pending);
-        assert!(res.passed(), "pending export is permitted (not a process failure)");
-        assert!(!res.attested(), "pending is non-attested");
+    fn case8_pending_receipt_is_not_evaluated() {
+        let res = verify_v3a(&AnyDeletionReceipt::V4(v4_receipt(None, None)), &mainnet());
+        assert_eq!(res.outcome, CheckOutcome::not_evaluated(REASON_V3A_PENDING));
     }
 
-    // --- Case 9: missing V3-A => non-attested, never a pass -----------------
+    // --- Case 9 / regression: v2/v3 are never classified by v4 states -------
     #[test]
-    fn case9_missing_v3a_is_never_attested() {
-        // v4 with no certs (pending) and v2/v3 (declared) are all non-attested.
-        assert!(!verify_v3a(&v4_receipt(None, None)).attested());
-        let mut v3 = v4_receipt(Some(vec![1]), Some(vec![2]));
-        v3.protocol_version = ProtocolVersion::V3.into();
-        let res = verify_v3a(&v3);
-        assert_eq!(res.classification, V3aClassification::DeployerDeclared);
-        assert!(!res.attested(), "missing V3-A is never a pass");
-    }
-
-    // --- Regression: v2/v3 receipts are NOT classified by v4 states ---------
-    #[test]
-    fn regression_v2_v3_not_classified_by_v4_states() {
-        // A v3 receipt that (structurally) carries a stray module cert must NOT
-        // be run through the v4 three-state rule — it is DeployerDeclared, never
-        // Invalid/Pending/Attested. (The historical misclassification.)
-        let mut v3 = v4_receipt(Some(vec![1]), Some(vec![2]));
-        v3.protocol_version = ProtocolVersion::V3.into();
-        assert_eq!(verify_v3a(&v3).classification, V3aClassification::DeployerDeclared);
-
-        let mut v2 = v4_receipt(None, None);
-        v2.protocol_version = ProtocolVersion::V2.into();
-        assert_eq!(verify_v3a(&v2).classification, V3aClassification::DeployerDeclared);
+    fn case9_v2_v3_are_not_evaluated_never_attested() {
+        for version in [ProtocolVersion::V2, ProtocolVersion::V3] {
+            let mut r = v4_receipt(Some(vec![1]), None);
+            r.protocol_version = version.into();
+            let res = verify_v3a(&AnyDeletionReceipt::V4(r), &mainnet());
+            assert_eq!(
+                res.outcome,
+                CheckOutcome::not_evaluated(REASON_V3A_LINE_PREDATES)
+            );
+        }
     }
 
     // --- Case 1: certified value != receipt.module_hash ---------------------
-    // Uses the REAL, BLS-valid mainnet module-hash certificate. The certificate
-    // machinery validates it end-to-end (BLS → NNS delegation → 5g26e range →
-    // exact /module_hash path) and returns the subnet-certified value; check 4
-    // (`verify_v3a`) then compares that value to `receipt.module_hash`. Here we
-    // exercise the comparison at the certificate level (the same value the full
-    // pipeline feeds into check 4): the certified value MATCHES the pinned true
-    // hash and MISMATCHES a deliberately-wrong 32 bytes.
     #[test]
     fn case1_value_mismatch_is_failed() {
         let (canister, cert, pinned_hash, pinned_time_ns) = load_v4_module_hash_cert();
-        let der = zombie_core::nns_keys::lookup_key("mainnet").unwrap().der_bytes;
-        let out = crate::v2_certificate::verify_certificate_over_module_hash(&cert, canister, der)
+        let out = verify_certificate_over_module_hash(&cert, canister, mainnet().der())
             .expect("real mainnet module-hash certificate must validate");
-        // Fixture integrity: the certificate certifies exactly the pinned hash
-        // and /time recorded in fixtures/v4_module_hash_cert.json.
-        assert_eq!(
-            out.certified_module_hash, pinned_hash,
-            "certified value {} != pinned fixture value {}",
-            hex::encode(out.certified_module_hash),
-            hex::encode(pinned_hash)
-        );
-        assert_eq!(
-            out.certificate_time_ns, pinned_time_ns,
-            "certificate /time {} != pinned fixture time {}",
-            out.certificate_time_ns, pinned_time_ns
-        );
-        // Check-4 semantics: a receipt claiming a DIFFERENT module_hash mismatches
-        // the certified value — the condition `verify_v3a` reports as Failed.
-        let wrong: [u8; 32] = [0x00; 32];
-        assert_ne!(
-            out.certified_module_hash, wrong,
-            "value-mismatch detection: certified {} must differ from a wrong receipt.module_hash",
-            hex::encode(out.certified_module_hash)
-        );
+        assert_eq!(out.certified_module_hash, pinned_hash);
+        assert_eq!(out.certificate_time_ns, pinned_time_ns);
+        assert_ne!(out.certified_module_hash, [0x00; 32]);
     }
 
     // --- Case 3: delegation range excludes the canister ---------------------
-    // The REAL 5g26e module-hash certificate's delegation authorizes 5g26e's app
-    // subnet. Presenting the SAME certificate but asserting a canister on a
-    // DIFFERENT subnet (an NNS/root-subnet canister) must be rejected by the
-    // delegation canister-range check — before any /module_hash lookup. This is
-    // the V3-A-framed counterpart to v2_certificate's authorize_canister_ranges
-    // unit tests, now over a real captured certificate.
     #[test]
     fn case3_delegation_range_excludes_canister() {
         let (_canister, cert, _mh, _t) = load_v4_module_hash_cert();
-        let der = zombie_core::nns_keys::lookup_key("mainnet").unwrap().der_bytes;
         // rdmx6-jaaaa-aaaaa-aaadq-cai (Internet Identity) is on the NNS/root
         // subnet — outside the app-subnet range the 5g26e delegation proves.
         let out_of_range = Principal::from_text("rdmx6-jaaaa-aaaaa-aaadq-cai").unwrap();
-        let err = crate::v2_certificate::verify_certificate_over_module_hash(
-            &cert,
-            out_of_range,
-            der,
-        )
-        .expect_err("a cert whose delegation range excludes the canister must be rejected");
+        let err = verify_certificate_over_module_hash(&cert, out_of_range, mainnet().der())
+            .expect_err("a cert whose delegation range excludes the canister must be rejected");
         assert!(
             err.contains("not authorized for this canister"),
-            "expected a delegation range-authorization failure, got: {err}"
+            "got: {err}"
         );
     }
 
     // --- Positive: subnet-attested PASS (two real certs) --------------------
-    // CONSTRAINED — cannot be built honestly at this time. The composite needs a
-    // real `certified_data` (commitment) certificate over the SAME canister as a
-    // real module-hash certificate. Source verification (per brief 2C / the C22
-    // caveat) shows this is not obtainable for the DaffyDefs factory 5g26e:
-    //   * `/canister/<id>/certified_data` is NOT externally readable via anonymous
-    //     read_state (IC spec; helper module doc) — only the canister itself can
-    //     expose its data_certificate;
-    //   * the factory 5g26e exposes NO query returning a certificate
-    //     (profile_factory.did: no state-hash / certificate method);
-    //   * only a profile_canister exposes `mktd_get_state_hash()` (a real
-    //     certified_data cert), but profile-canister IDs are per-user, created
-    //     dynamically, not enumerable (list_all_profiles is admin-only), and
-    //     minting one is a mutating update call — out of scope for a capture.
-    // The genuine two-cert positive arrives from a DaffyDefs end-to-end finalized
-    // receipt at Gate 2 (fixtures/v4_finalized_mainnet.json) — now landed; the test
-    // below exercises it against the real artifact rather than by inspection.
+    // GENUINE mainnet finalized v4 receipt — DaffyDefs reference CVDR, both
+    // real certificates, ordered within MAX_FINALIZATION_DELAY_NS.
     #[test]
     fn positive_subnet_attested_pass() {
-        // GENUINE mainnet finalized v4 receipt — DaffyDefs Gate 2 ceremony
-        // (2026-07-21) + R-a/R-b remediation. Carries a real bls (certified_data)
-        // cert and a real module-hash cert over the ceremony profile canister
-        // y5izv, ordered within MAX_FINALIZATION_DELAY_NS. Supersedes the deferred
-        // composite (README §2). The certified module hash is the receipt's
-        // deletion-time attested anchor 85a326cd (not the current live hash — the
-        // canister was legitimately upgraded post-finalization).
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures/v4_finalized_mainnet.json");
-        let receipt = crate::fetch::load_receipt_from_file(path.to_str().unwrap())
-            .expect("genuine v4 finalized fixture loads");
+            .join("tests/fixtures/v4/v4_finalized_mainnet.json");
+        let receipt = crate::intake::read_receipt_file(path.to_str().unwrap())
+            .expect("genuine v4 fixture loads");
+        assert_eq!(receipt.state(), ReceiptState::FinalizedCandidate);
 
-        // Three-state: both certificates present => FinalizedCandidate.
-        assert_eq!(
-            receipt.state(),
-            zombie_core::receipt::ReceiptState::FinalizedCandidate,
-            "finalized v4 receipt with both certs must classify FinalizedCandidate"
-        );
-
-        // V3-A positive path: all six checks green => SUBNET-ATTESTED.
-        let res = verify_v3a(&receipt);
-        assert!(res.passed(), "V3-A positive must not be a failure");
-        assert!(res.attested(), "genuine two-cert receipt must be SUBNET-ATTESTED");
-        match res.classification {
-            V3aClassification::SubnetAttested { delta_secs } => {
-                assert!(delta_secs >= 0.0, "ordered: t(module_hash) >= t(commitment)");
-                assert!(
-                    (delta_secs * 1e9) < MAX_FINALIZATION_DELAY_NS as f64,
-                    "finalization delay under MAX_FINALIZATION_DELAY_NS"
-                );
+        let res = verify_v3a(&receipt, &mainnet());
+        assert!(res.outcome.is_pass(), "{:?}", res.outcome);
+        match res.timing {
+            Some(TimingFact::V3aFinalizationDelay {
+                delta_secs: Some(d),
+                verdict,
+                ..
+            }) => {
+                assert_eq!(verdict, TIMING_ROUTINE);
+                assert!(d >= 0.0 && (d * 1e9) < MAX_FINALIZATION_DELAY_NS as f64);
             }
-            other => panic!("expected SubnetAttested, got {other:?}"),
+            other => panic!("expected a routine finalization delay, got {other:?}"),
         }
+        assert!(crate::v1_transition::verify(&receipt).is_pass());
 
-        // Scope note: unlike the abandoned composite, the genuine artifact carries
-        // the real preimages, so V1's state-transition recomputation also passes
-        // end to end. Asserted here — the genuine receipt supports the full
-        // pipeline, so this extends beyond the V3-positive scope the composite plan
-        // was limited to.
-        let v1 = crate::v1_transition::verify(&receipt, receipt.canister_id);
-        assert!(
-            v1.passed(),
-            "genuine receipt supports the full V1 recomputation: {:?}",
-            v1.details
+        // Check 4 on the genuine receipt: a different receipt module_hash fails.
+        let AnyDeletionReceipt::V4(mut tampered) = receipt else {
+            panic!("v4 fixture")
+        };
+        tampered.module_hash = [0u8; 32];
+        let res = verify_v3a(&AnyDeletionReceipt::V4(tampered), &mainnet());
+        assert_eq!(res.outcome.error(), Some(ERR_V3A_MODULE_HASH_MISMATCH));
+    }
+
+    #[test]
+    fn v3b_is_not_evaluated_without_provenance_and_compares_when_supplied() {
+        let r = AnyDeletionReceipt::V4(v4_receipt(None, None));
+        assert_eq!(
+            verify_v3b(&r, None),
+            CheckOutcome::not_evaluated(REASON_V3B_NO_PROVENANCE)
+        );
+        assert!(verify_v3b(&r, Some(MH)).is_pass());
+        assert_eq!(
+            verify_v3b(&r, Some([0u8; 32])).error(),
+            Some(ERR_V3B_MODULE_HASH_MISMATCH)
         );
     }
 }

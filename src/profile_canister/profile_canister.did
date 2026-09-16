@@ -11,7 +11,6 @@ type DaffyError = variant {
 type MktdPendingCertificateResponse = record {
   certificate : blob;
   receipt_id : text;
-  certified_commitment : blob;
 };
 type MktdReceiptResponse = record {
   bls_certificate : opt blob;
@@ -28,9 +27,8 @@ type MktdReceiptResponse = record {
   pre_state_hash : text;
   record_id : blob;
   protocol_version : text;
-  certified_commitment : text;
+  certified_commitment : opt text;
 };
-type MktdStateHashResponse = record { certificate : opt blob; hash : blob };
 type MktdTombstoneStatus = record {
   tombstoned_at : opt nat64;
   is_tombstoned : bool;
@@ -98,7 +96,7 @@ service : (principal, opt text) -> {
   mktd_get_receipt : (text) -> (opt MktdReceiptResponse) query;
   // Returns the current state hash with optional ICP certificate.
   // Use this for certified verification of the canister's PII state.
-  mktd_get_state_hash : () -> (MktdStateHashResponse) query;
+  mktd_diag_state_hash : () -> (blob) query;
   // Returns the tombstone status of this canister.
   mktd_get_tombstone_status : () -> (MktdTombstoneStatus) query;
   // Returns whether a receipt is pending finalization.

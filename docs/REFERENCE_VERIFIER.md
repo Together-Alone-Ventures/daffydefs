@@ -4,7 +4,8 @@
 
 The reference verifier is supplied as a convenience for DaffyDefs CVDR verification.
 
-For the DaffyDefs receipt path, it automates V1–V3 and reports V4 code provenance as **NOT EVALUATED**.
+For the DaffyDefs receipt path, the v0.8.0 DRAFT automates the ratified v5
+V1/V2/V3A checks and reports build provenance separately.
 
 ## Source
 
@@ -14,9 +15,9 @@ Source location:
 
 Baseline:
 
-- upstream CVDR-Verify release: `v0.6.1`
-- upstream commit: `ad16f2a`
-- exact DaffyDefs deltas: recorded in `VENDORED_SOURCES.md`
+- upstream CVDR-Verify subtree: `mktd02-v5`
+- upstream commit: `560e483b047209ee83463dfab29da07acb422feb`
+- version: `0.8.0` DRAFT (no release tag)
 
 ## Binary
 
@@ -25,10 +26,10 @@ Packaged Linux target:
 - OS: Linux
 - architecture: x86_64
 - executable: `tools/cvdr-verify/bin/linux-x86_64/mktd02-verify`
-- reported Cargo version: `0.6.1`
-- identity: **CVDR-Verify 0.6.1 + DaffyDefs deltas** described in `VENDORED_SOURCES.md`
+- reported verifier version: `0.8.0` DRAFT
+- identity: **CVDR-Verify at `560e483b…`**, with standalone workspace packaging
 
-**Binary SHA-256:** `c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f`
+**Binary SHA-256:** `b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
 
 This binary is intentionally not described as byte-identical to upstream v0.6.1: the DaffyDefs copy carries the ruled label/presentation/gating delta.
 
@@ -38,7 +39,7 @@ The executable is a convenience artifact, not a trust anchor.
 
 ```bash
 tools/cvdr-verify/bin/linux-x86_64/mktd02-verify \
-  --receipt-file <downloaded-receipt.json>
+  --receipt-file <downloaded-receipt.json> --trust-root mainnet
 ```
 
 Default network endpoint in the DaffyDefs copy is `https://ic0.app`.

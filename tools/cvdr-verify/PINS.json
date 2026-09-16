@@ -1,0 +1,10 @@
+{
+  "protocol": "mktd02-v5",
+  "verifier_version": "0.8.0 DRAFT",
+  "zombie_core_git_rev": "223723885cfbb548d6b218aee8500b073fda4b58",
+  "corpus_commit": "40ba6db37bb28c2044f1652f658af943ff7616c8",
+  "icp_delete_leaf_fixture_producer_git_rev": "2a10bf3ee056d3ff53327ca23654609a6f430c5e",
+  "pocketic_v5_fixture_provenance_path": "tests/fixtures/v5/pocketic-11-p17/PROVENANCE.md",
+  "path_base": "mktd02/mktd02-verify",
+  "record_purpose": "Publication and fixture provenance metadata; not an input to protocol verification."
+}

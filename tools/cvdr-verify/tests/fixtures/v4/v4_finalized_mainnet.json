@@ -6,7 +6,7 @@
     "ceremony_go_live_sha": "25f199f25e1f9f532f584b7d7d7c437716ffcf4b",
     "remediation_sha": "5ca421f1548ae76a39f6a3c68699a9bdd1b76461",
     "daffydefs_release_ref": "RELEASES.md (Ceremony & remediation record); handoff ceremony_handoff_w5_remediated/",
-    "certified_module_hash_is_attested_anchor": "85a326cd\u2026 \u2014 the deletion-time profile code the receipt certifies (NOT current live y5izv 07421692; canister legitimately upgraded post-finalization \u2014 the archival V3-A point).",
+    "certified_module_hash_is_attested_anchor": "85a326cd\u2026 \u2014 the deletion-time profile code the receipt certifies (NOT current live y5izv 07421692; canister legitimately upgraded post-finalization \u2014 the archival V3A point).",
     "module_hash_certificate_source": "receipt-embedded cert (on-chain, authoritative). The handoff standalone .cbor is the guard-time capture: same certified module_hash 85a326cd, different fetch (delegation/time/signature vary).",
     "ceremony_profile_canister": "y5izv-byaaa-aaaaj-qsdfq-cai",
     "owner_principal": "bnei3-q6srl-nnk3z-oaz6w-7ij24-xlc2a-46vdl-ogbfd-ztgfn-gr7pa-7ae"

@@ -16,7 +16,7 @@
 //                        delegation range) under the same root key as the
 //                        module-hash certificate. The host's query response is
 //                        not trusted merely because the host returned it.
-//   G3_commitment_match  Phase B certified_data == the pending receipt's
+//   G3_certified_data_match  Phase B certified_data == the pending receipt's
 //                        certified commitment.
 //   G5_time_relation     t(module-hash cert) >= t(commitment cert). A negative
 //                        delta is an ORDERING FAILURE, never a delay verdict.
@@ -41,7 +41,7 @@ import {
 /**
  * NORMATIVE finalization-delay threshold: 3_600_000_000_000 ns (1 hour).
  *
- * Source of truth is zombie-core v0.4.1 `protocol.rs:13`
+ * Source of truth is zombie-core 223723885cfbb548d6b218aee8500b073fda4b58 `protocol.rs`
  * (`pub const MAX_FINALIZATION_DELAY_NS: u64 = 3_600_000_000_000;`), which
  * zd-finalize-helper pins and compares against. It is restated here because the
  * browser cannot link the Rust crate; it must not be changed independently of
@@ -89,8 +89,8 @@ export interface GuardInputs {
   receiptId: string;
   /** The receipt's embedded module_hash (G2 expectation). */
   expectedModuleHash: Uint8Array;
-  /** The pending receipt's certified commitment (G3 expectation). */
-  commitment: Uint8Array;
+  /** The receipt's version-selected certified data (G3 expectation). */
+  expectedCertifiedData: Uint8Array;
   moduleHashTree: HashTree;
   phaseBTree: HashTree;
   /**
@@ -139,7 +139,7 @@ export function evaluateGuard(inputs: GuardInputs): GuardReport {
     canisterId,
     receiptId,
     expectedModuleHash,
-    commitment,
+    expectedCertifiedData,
     moduleHashTree,
     phaseBTree,
     phaseBTrustOk,
@@ -202,21 +202,21 @@ export function evaluateGuard(inputs: GuardInputs): GuardReport {
   // --- G3: certified_data leaf == the pending commitment -------------------
   try {
     const certifiedData = lookupCertifiedData(phaseBTree, canisterId);
-    const passed = bytesEqual(certifiedData, commitment);
+    const passed = bytesEqual(certifiedData, expectedCertifiedData);
     if (!passed) ok = false;
     checks.push({
-      id: "G3_commitment_match",
-      description: "Phase B certified_data equals the pending receipt's certified commitment",
+      id: "G3_certified_data_match",
+      description: "Phase B certified_data equals the receipt's version-selected certified data",
       passed,
       detail: passed
         ? `match: ${toHex(certifiedData)}`
-        : `MISMATCH: certified ${toHex(certifiedData)} vs pending ${toHex(commitment)}`,
+        : `MISMATCH: certified ${toHex(certifiedData)} vs pending ${toHex(expectedCertifiedData)}`,
     });
   } catch (e) {
     ok = false;
     checks.push({
-      id: "G3_commitment_match",
-      description: "Phase B certified_data equals the pending receipt's certified commitment",
+      id: "G3_certified_data_match",
+      description: "Phase B certified_data equals the receipt's version-selected certified data",
       passed: false,
       detail: e instanceof LookupError ? e.message : String(e),
     });

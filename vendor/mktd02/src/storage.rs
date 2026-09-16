@@ -5,9 +5,9 @@
 //! | Offset  | Content              | Type                                          |
 //! |---------|----------------------|-----------------------------------------------|
 //! | base+0  | Meta cell            | schema_version, memory_base, init_at, mod_hash, pending_receipt_id |
-//! | base+1  | state_hash           | [u8; 32]                                      |
+//! | base+1  | state_hash           | [u8; 32] — diagnostic-only (not a verification input, never certified) |
 //! | base+2  | deletion_seq         | u64                                           |
-//! | base+3  | certified_commitment | [u8; 32]                                      |
+//! | base+3  | reserved             | formerly certified_commitment; not written or read on v5 |
 //! | base+4  | deletion_event_hash  | [u8; 32]                                      |
 //! | base+5  | finalization_lock    | bool (prevents certified_data drift)          |
 //! | base+6  | receipt store        | StableBTreeMap<[u8;32], Vec<u8>>              |
@@ -77,7 +77,7 @@ impl Storable for Hash32 {
 ///   legacy(49) + has_pending_receipt_id(1) + pending_receipt_id(32)
 ///
 /// All integer fields use little-endian encoding (stable memory convention).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct MetaCell {
     pub schema_version: u32,
     pub memory_base: u32,
@@ -86,29 +86,15 @@ pub(crate) struct MetaCell {
     pub pending_receipt_id: Option<[u8; 32]>,
 }
 
-impl Default for MetaCell {
-    fn default() -> Self {
-        Self {
-            schema_version: 0,
-            memory_base: 0,
-            initialised_at: None,
-            module_hash: [0u8; 32],
-            pending_receipt_id: None,
-        }
-    }
-}
-
 impl Storable for MetaCell {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
         let mut buf = vec![0u8; 82];
         buf[0..4].copy_from_slice(&self.schema_version.to_le_bytes());
         buf[4..8].copy_from_slice(&self.memory_base.to_le_bytes());
-        match self.initialised_at {
-            Some(ts) => {
-                buf[8] = 1;
-                buf[9..17].copy_from_slice(&ts.to_le_bytes());
-            }
-            None => {} // already zeroed
+        // None: already zeroed.
+        if let Some(ts) = self.initialised_at {
+            buf[8] = 1;
+            buf[9..17].copy_from_slice(&ts.to_le_bytes());
         }
         buf[17..49].copy_from_slice(&self.module_hash);
         if let Some(pending_id) = self.pending_receipt_id {
@@ -120,7 +106,7 @@ impl Storable for MetaCell {
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
         let raw = bytes.as_ref();
         if raw.len() != 49 && raw.len() != 82 {
-            ic_cdk::trap(&format!(
+            ic_cdk::trap(format!(
                 "MKTd02: invalid MetaCell byte length {} (expected 49 or 82)",
                 raw.len()
             ));
@@ -231,7 +217,8 @@ impl Storable for OptionalTimestamp {
     };
 }
 
-/// Receipt value wrapper (CBOR-encoded DeletionReceipt).
+/// Receipt value wrapper (CBOR-encoded receipt: `DeletionReceiptV5`, or an
+/// issued v2–v4 receipt stored before the canister moved to v5).
 ///
 /// Max size: 16384 bytes. A finalized v4 receipt carries two delegation-bearing
 /// certificates (`bls_certificate` + `module_hash_certificate`, ~2 KB each on
@@ -265,7 +252,7 @@ pub(crate) struct MktdStorage {
     pub meta: StableCell<MetaCell, Memory>,
     pub state_hash: StableCell<Hash32, Memory>,
     pub deletion_seq: StableCell<StorableU64, Memory>,
-    pub certified_commitment: StableCell<Hash32, Memory>,
+    // base+3: RESERVED (R-D) — no field; see setup_storage.
     pub deletion_event_hash: StableCell<Hash32, Memory>,
     pub finalization_lock: StableCell<StorableBool, Memory>,
     pub receipts: StableBTreeMap<Hash32, ReceiptBytes, Memory>,
@@ -273,7 +260,7 @@ pub(crate) struct MktdStorage {
 }
 
 thread_local! {
-    static STORAGE: RefCell<Option<MktdStorage>> = RefCell::new(None);
+    static STORAGE: RefCell<Option<MktdStorage>> = const { RefCell::new(None) };
 }
 
 /// Schema version for the current storage layout.
@@ -285,7 +272,7 @@ const SCHEMA_VERSION: u32 = 1;
 pub(crate) fn setup_storage(mm: &MemoryManager<DefaultMemoryImpl>, base: u8) {
     // Range check
     if (base as u16) + 7 > 255 {
-        ic_cdk::trap(&format!(
+        ic_cdk::trap(format!(
             "MKTd02: base MemoryId {} + 7 exceeds 255. Choose a lower base.",
             base
         ));
@@ -298,11 +285,20 @@ pub(crate) fn setup_storage(mm: &MemoryManager<DefaultMemoryImpl>, base: u8) {
         meta: StableCell::init(mm.get(MemoryId::new(base)), MetaCell::default()),
         state_hash: StableCell::init(mm.get(MemoryId::new(base + 1)), Hash32::default()),
         deletion_seq: StableCell::init(mm.get(MemoryId::new(base + 2)), StorableU64::default()),
-        certified_commitment: StableCell::init(mm.get(MemoryId::new(base + 3)), Hash32::default()),
+        // base+3: RESERVED (R-D, 12 Sep 2026) — formerly certified_commitment;
+        // not written or read on mktd02-v5. Deliberately not opened
+        // (StableCell::init would write a header into fresh memory). Slot
+        // numbers are unchanged (Q7: no renumbering).
         deletion_event_hash: StableCell::init(mm.get(MemoryId::new(base + 4)), Hash32::default()),
-        finalization_lock: StableCell::init(mm.get(MemoryId::new(base + 5)), StorableBool::default()),
+        finalization_lock: StableCell::init(
+            mm.get(MemoryId::new(base + 5)),
+            StorableBool::default(),
+        ),
         receipts: StableBTreeMap::init(mm.get(MemoryId::new(base + 6))),
-        tombstoned_at: StableCell::init(mm.get(MemoryId::new(base + 7)), OptionalTimestamp::default()),
+        tombstoned_at: StableCell::init(
+            mm.get(MemoryId::new(base + 7)),
+            OptionalTimestamp::default(),
+        ),
     };
 
     // Collision detection (belt-and-suspenders):
@@ -313,7 +309,7 @@ pub(crate) fn setup_storage(mm: &MemoryManager<DefaultMemoryImpl>, base: u8) {
         || existing.memory_base != 0;
 
     if previously_initialised && existing.memory_base != base as u32 {
-        ic_cdk::trap(&format!(
+        ic_cdk::trap(format!(
             "MKTd02 already initialised at base={}; requested base={}",
             existing.memory_base, base
         ));
@@ -321,7 +317,7 @@ pub(crate) fn setup_storage(mm: &MemoryManager<DefaultMemoryImpl>, base: u8) {
 
     // Schema version gate: refuse to run against an unknown layout.
     if previously_initialised && existing.schema_version != SCHEMA_VERSION {
-        ic_cdk::trap(&format!(
+        ic_cdk::trap(format!(
             "MKTd02: schema version mismatch — stored={}, expected={}. \
              Downgrade is not supported; upgrade migration required.",
             existing.schema_version, SCHEMA_VERSION
@@ -367,6 +363,18 @@ pub(crate) const fn schema_version() -> u32 {
 // ---------------------------------------------------------------------------
 // Finalization lock helpers
 // ---------------------------------------------------------------------------
+//
+// PURPOSE (mktd02-v5, restated): once the deletion path has published a new
+// certified value, nothing may overwrite it until its certificate is captured
+// into the receipt (Phase C, which releases the lock). It guards two events:
+//   1. a second deletion before finalisation — `acquire_finalization_lock`
+//      and `publish_deletion_certified` both trap while the lock is held;
+//   2. an upgrade during the pending window — `restore_certified` traps while
+//      the lock is held, so the upgrade aborts and the window is inviolable
+//      (R-B, 12 Sep 2026: the trap stands; `restore_certified` only ever runs
+//      for upgrades outside the window, where it restores the SAME value).
+// Proven by the PocketIC tests upgrade_during_pending_window_traps (T8a) and
+// T6/T8b.
 
 /// Check whether the finalization lock is held.
 ///

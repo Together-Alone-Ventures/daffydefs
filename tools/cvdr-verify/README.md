@@ -1,6 +1,9 @@
-> **DaffyDefs users:** this file preserves the upstream verifier guide and includes OpenChatZD material and historical labels. For the DaffyDefs demo path, start with [`../../docs/REFERENCE_VERIFIER.md`](../../docs/REFERENCE_VERIFIER.md) and [`../../docs/VERIFICATION_PROCEDURE.md`](../../docs/VERIFICATION_PROCEDURE.md). The exact DaffyDefs delta is recorded in [`../../VENDORED_SOURCES.md`](../../VENDORED_SOURCES.md).
-
 ## Verifier's Guide — OpenChatZD deletion receipts
+
+This DaffyDefs convenience copy tracks the authoritative MKTd02-v5 subtree at
+CVDR-Verify commit `560e483b047209ee83463dfab29da07acb422feb`. It is version
+`0.8.0` DRAFT with no invented release tag. Build the binary with Rust
+`1.97.1` using `cargo build --release --locked`.
 
 ### What you are verifying
 
@@ -29,7 +32,7 @@ Reveal packages (`RevealWire`): `schema · version · encoding · salt · target
 ### Quick start
 
 ```
-cvdr-verify --package receipt.json
+mktd02-verify --package receipt.json
 ```
 
 The verdict is one of:
@@ -95,7 +98,7 @@ group/community targets. The user (and only the user) holds the reveal package
 `{version, salt, sorted target list}`. Given both:
 
 ```
-cvdr-verify --package receipt.json --reveal reveal.json
+mktd02-verify --package receipt.json --reveal reveal.json
 ```
 
 recomputes `TARGETS_COMMITMENT_V1` and confirms the revealed list is exactly the one the
@@ -109,7 +112,7 @@ canister's module hash, hash-bound into the receipt. So a module hash
 you already trust can be checked *against* the receipt, offline:
 
 ```
-cvdr-verify --package receipt.json --expect-module-hash <64-hex>
+mktd02-verify --package receipt.json --expect-module-hash <64-hex>
 ```
 
 This recomputes `h_index` from the hash you supplied and the body's own
@@ -132,7 +135,7 @@ deletion.**
 
 - **Alone, it verifies nothing.** It prints the live hash, labelled informational, and
   compares it to nothing.
-- **With `--expect-module-hash`, it gates.** The live hash must equal the expected one.
+- **With `--expect-module-hash`, it is required to match.** The live hash must equal the expected one.
   `LIVE_MODULE_HASH_MISMATCH` or `LIVE_MODULE_HASH_UNAVAILABLE` rejects and exits non-zero
   — the first when the live hash differs from the supplied expectation, the second when the
   network is unreachable and the assertion you asked for cannot be made. It fails closed
@@ -140,7 +143,7 @@ deletion.**
 
 So a canister legitimately upgraded after the deletion will mismatch here while its receipts
 remain perfectly valid. That is why the receipt-binding claim is the offline
-`--expect-module-hash` gate above, and why a live mismatch carries its own distinct reason.
+`--expect-module-hash` comparison above, and why a live mismatch carries its own distinct reason.
 
 Deeper provenance (matching a module hash to a signed release record, rebuilding from
 source) is release-attested: until reproducible builds are relied on, do not describe the
@@ -149,8 +152,10 @@ receipt as "independently verifiable from source."
 ### What a CVDR does NOT prove
 
 - It does **not** certify the original user data or prove what PII existed before
-  deletion — it proves the named user canister was torn down by the named code at the
-  certified time.
+  deletion, and it does not establish which code ran. It establishes that a deletion
+  receipt naming the user canister was included in the index canister's certified state
+  at the certificate time. Where INDEX code-identity evidence is present, it attests the
+  identity of the deployed module at certification time.
 - It records which group/community targets were **captured and notified** — it does
   **not** certify that each group completed member removal. Do not report
   "groups confirmed erased."
@@ -163,63 +168,148 @@ CVDR-Verify treats the field names above as the **portable package contract**. P
 must serve the frozen package byte-for-byte; verifiers must not require live refetch or
 regeneration of any package component.
 
-### V3-A — subnet-attested code identity (mktd02-v4)
+## Verifier's Guide — MKTd02 deletion receipts
 
-> Note: 'V3-A' throughout this document = V3 (attested code identity) under the
-> ratified renumbering; the wholesale V3-A→V3 rename is a tracked backlog item.
+> **Output format: PROVISIONAL.** The result is a set of structured facts. The human
+> rendering below, and the `--json` field names, stand until the shared output
+> contract replaces them. The verification logic and the validity rule do not
+> depend on the rendering.
 
-For `mktd02-v4` receipts, CVDR-Verify runs **V3-A**, an *archival* code-identity
-check that works **offline from the exported receipt alone** — no live canister
-access. It coexists with the live V3 module-hash corroboration (which needs the
-canister to still exist). V3-A reads two certificates embedded in the finalized
-receipt: the Phase B `bls_certificate` (over `certified_data`) and the
-`module_hash_certificate` (a subnet `read_state` over
-`/canister/<id>/module_hash`).
+### Quick start
 
-**The six normative checks** (all must hold for a pass):
+```
+mktd02-verify --receipt-file receipt.json --trust-root mainnet
+mktd02-verify --receipt-file receipt.cbor --trust-root-pem pocketic_root.pem
+mktd02-verify --canister <principal> --receipt-id <hex> --trust-root mainnet
+```
 
-1. Both certificates validate against the trusted IC root with full delegation
-   checks (BLS signature → NNS delegation).
-2. The module-hash certificate's certified path is **exactly**
-   `/canister/<receipt.canister_id>/module_hash` — a certificate over any other
-   path is rejected.
-3. The delegation's canister range authorises `receipt.canister_id`.
-4. The certified module-hash value equals the receipt's embedded `module_hash`.
-5. Both certificates share the same canister identity and trust-root context, and
-   `t(module_hash cert) ≥ t(bls cert)`. A **negative delta is an ordering
-   failure**, never a delay verdict. The receipt's internal deletion timestamp is
-   never the security bound — only certificate `/time` is.
-6. If `t(module_hash) − t(bls)` exceeds the normative threshold
-   `MAX_FINALIZATION_DELAY_NS` (from zombie-core; 3,600 s), the result is
-   **`DELAY_EXCEEDED`** — a downgrade, **not** a rejection (LateFinalized-style).
-   CVDR-Verify is the authoritative interpreter of this threshold.
+Add `--json` to print the facts instead of the human rendering.
 
-**Receipt-state rule (three-state, protocol-aware, v4 only).** A v4 receipt is
-classified by certificate presence: `Pending` (neither certificate) /
-`FinalizedCandidate` (both) / `InvalidIncompleteFinalization` (exactly one). v2/v3
-receipts predate this field and are **never** classified by the v4 states.
+A trust root is **required**. `--trust-root mainnet` selects the built-in IC root key.
+`--trust-root-pem <file>` takes a PEM `PUBLIC KEY` block holding the DER-encoded IC root
+key (e.g. a PocketIC test network) and records it as `pem:<first 16 hex of SHA-256>`.
+There is no implicit default. The receipt's own `trust_root_key_id` never selects a
+key: it is recorded, and if it differs from the root used, `trust_root_mismatch` is
+reported as a warning, never as a failure.
 
-**Report vocabulary:**
+### What is verified
 
-- **Subnet-attested** — V3-A passed; the subnet certified the installed module
-  hash at the certified time.
-- **Deployer-declared** — no attested module-hash certificate (a v2/v3 receipt, or
-  a v4 receipt without the certificate). Non-attested.
-- **Pending** — receipt not finalized (neither certificate). Export is permitted
-  and is labelled **non-attested**.
+Every receipt is decoded by zombie-core (`AnyDeletionReceipt`). Named decode errors,
+such as `retired-field:certified_commitment` or `unrecognised protocol_version`, are
+reported verbatim as `validity: FAIL`.
 
-A **missing V3-A is reported as non-attested, never as a pass.** A certificate
-that is present but fails any of checks 1–5 is a present-but-invalid **failure**
-(a red flag), distinct from benign non-attestation.
+- **V1 — internal consistency.** For `mktd02-v5`, zombie-core's normative `verify_v1`:
+  `receipt_id` first, then `deletion_event_hash` over it. For the historical lines
+  `mktd02-v2`…`v4`: `receipt_id` (per line), `deletion_event_hash` (v1 construction),
+  `certified_commitment` (retired tag, historical use only) and `tombstone_hash` are
+  recomputed.
+- **V2 — direct certification, offline.** The embedded `bls_certificate` must validate
+  against the trust root: BLS signature, NNS delegation, and the delegation's canister
+  range covering the receipt's canister. Freshness at verification time is not checked
+  for archived evidence. Its `certified_data` for the canister must equal the receipt's
+  `deletion_event_hash` (v5) or `certified_commitment` (v2–v4). For v5, a
+  `certified_data` equal to the canister's genesis value is refused as
+  `no-deletion-certified`. The certificate time against the receipt timestamp is
+  reported as an informational timing note (warning above `CVDR_V2_CERT_TIME_WARN_SECS`,
+  default 300 s).
+- **V3A — subnet-attested code identity (v4 and v5).** From the two embedded
+  certificates alone, with no live access, all six checks must hold:
+  1. both certificates validate against the trust root;
+  2. the module-hash certificate's path is exactly `/canister/<canister_id>/module_hash`;
+  3. the delegation's canister range covers the canister;
+  4. the certified module hash equals the receipt's `module_hash`;
+  5. `t(module_hash cert) ≥ t(bls cert)` — a negative delta is an ordering **failure**;
+  6. a delta above `MAX_FINALIZATION_DELAY_NS` (zombie-core, 3,600 s) is
+     **`DELAY_EXCEEDED`**: a downgrade shown in the timing note, not a rejection.
 
-The V3-A positive path is now exercised against a **genuine mainnet artifact**: the
-DaffyDefs Gate 2 ceremony produced a real end-to-end finalized `mktd02-v4` receipt
-(`fixtures/v4_finalized_mainnet.json`), and `positive_subnet_attested_pass` verifies
-it offline to `SUBNET-ATTESTED` (both real certs under the built-in IC root, ordered
-within the finalization delay) — plus V1's full recomputation, since the genuine
-receipt carries the real preimages. Its certified module hash is the code identity
-**at deletion**; if the canister is later upgraded, a *live* V3 read shows an
-expected upgraded-since-deletion divergence while the archival V3-A verdict stands.
+  The bls certificate is bound to the same value V2 compares. V3A **attests the
+  identity of the deployed module at certification time**. It does not establish which
+  code ran. v2/v3 receipts predate module-hash certification: V3A is `NOT_EVALUATED`
+  for them.
+- **V3B — build provenance.** `NOT_EVALUATED` unless a published module hash is supplied
+  with `--wasm-hash`, in which case the receipt's `module_hash` is compared with it. No
+  rebuild is performed, and V3B never affects validity.
+
+### Validity
+
+| Result | When |
+|---|---|
+| `validity: PASS` | v4/v5: V1, V2 and V3A all pass on a finalized receipt. v2/v3: V1 and V2 pass (V3A shown `NOT_EVALUATED — line predates module-hash certification`). |
+| `validity: INCOMPLETE` | The receipt is **pending**: neither certificate is embedded yet. V1 is still checked; V2 and V3A are `NOT_EVALUATED`. INCOMPLETE is never a pass. |
+| `validity: FAIL` | Intake refused the receipt, or V1 failed, or a required check failed (named error), or exactly one of the two certificates is present (`incomplete-finalisation`). |
+
+The assurance block lists the protocol line (historical lines are marked
+`(historical)`), the receipt state, the trust root used and any mismatch, the
+attestation class (`subnet-attested` or `not-attested`), and every check as `PASS`,
+`FAIL <named error>` or `NOT_EVALUATED — <reason>`. It also lists the timing sub-results
+and what each passing check established. No line is a bare `PASS`.
+
+Exit codes (MKTd02 receipt mode): `0` PASS, `1` FAIL, `2` usage error (no verdict),
+`4` INCOMPLETE. OpenChatZD package mode keeps its own codes (`0`/`1`/`3`).
+
+Example pending-receipt output (abbreviated):
+
+```text
+validity: INCOMPLETE
+assurance:
+  protocol_line: mktd02-v5
+  receipt_state: Pending
+  V1: PASS
+  V2: NOT_EVALUATED — pending
+  V3A: NOT_EVALUATED — pending
+  V3B: NOT_EVALUATED — no build provenance supplied
+```
+
+### Live diagnostics
+
+Fetching a receipt from a canister (`--canister`/`--receipt-id`) is intake. Queries
+about the canister *as it is now* — current `certified_data`, current module hash,
+tombstone persistence — run only with `--diagnostic-live-check`. They are reported in a
+separate block and never affect validity: a canister upgraded after deletion, or no
+longer reachable, does not change the receipt's verdict.
+
+### Receipt encoding
+
+The ratified wire is canonical. JSON numbers for `timestamp` and `deletion_seq`
+(`nonce` on v2), lowercase hex for hashes and certificates, or the equivalent CBOR.
+`mktd02-v5` receipts are decoded strictly: unknown keys and the retired
+`certified_commitment` are refused. For the historical lines `mktd02-v2`…`v4` the
+verifier keeps intake tolerance: decimal-string numbers, byte-array or `0x`-prefixed
+fields, and a v2 `subnet_id` that must be a valid principal. Decimal strings are
+historical tolerance, not the canonical encoding.
+
+### Reference fixture
+
+The DaffyDefs v4 reference CVDR (`tests/fixtures/v4/v4_finalized_mainnet.json`, a
+genuine mainnet receipt with both certificates) verifies offline as `validity: PASS`,
+`protocol_line: mktd02-v4 (historical)`, `attestation_class: subnet-attested` under
+`--trust-root mainnet`. Its certified module hash is the module identity **at
+certification time**. A canister upgraded afterwards shows a different current hash
+under `--diagnostic-live-check`, and the receipt's verdict is unchanged. Provenance:
+`tests/fixtures/v4/PROVENANCE.md` and `tests/fixtures/README.md`.
+
+### PocketIC v5 regression fixture
+
+The capture in `tests/fixtures/v5/pocketic-11-p17/` is an
+**implementation-derived regression fixture, not a corpus vector**. With its
+captured `root.pem` supplied through `--trust-root-pem`, V1 and V2 pass using a
+real PocketIC BLS certificate. Its dummy module-hash certificate intentionally
+causes V3A to fail with `v3a:module-hash-certificate`, so overall validity is FAIL.
+It is not a fully valid v5 CVDR. The receipt names `mainnet`, while verification
+uses the captured PEM root; this is reported as a trust-root mismatch warning.
+See [capture provenance](tests/fixtures/v5/pocketic-11-p17/PROVENANCE.md).
+
+## Development checks
+
+Run `./ci.sh` from this directory (or invoke it by path from elsewhere).
+It requires Python 3, the pinned Rust toolchain, and `cargo-audit`, with access
+to dependencies and the current advisory database. It runs formatting, Clippy
+with warnings denied, locked tests, audit, and explicit corpus acceptance.
+The unchanged OpenChatZD formatting and Clippy diagnostics are reported and
+accepted only on an exact fixed-baseline match; any changed diagnostic or count
+fails. Test failures and audit vulnerabilities fail. The four documented
+maintenance warnings are permitted. Baseline details are recorded in
+[development notes](../../docs/dev/slice4_notes.md#12-exit-ruling-closure-16-sep-2026).
 
 ---
 

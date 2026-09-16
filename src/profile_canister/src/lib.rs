@@ -20,7 +20,7 @@
 //   ProfileAdapter implements MKTdDataSource
 //   mktd02::init() called in #[init]
 //   mktd02::on_post_upgrade() called in #[post_upgrade]
-//   mktd02::refresh_state_hash() called after every PII write
+//   v5 computes state hashes at deletion; ordinary writes do not change certified_data.
 //   A→B→C flow mapping:
 //     Phase A: mktd02::execute_deletion() in delete_profile()
 //     Phase B: mktd02::get_pending_certificate() in mktd_get_certificate()
@@ -151,7 +151,7 @@ pub struct MktdReceiptResponse {
     pub post_state_hash: String,
     pub tombstone_hash: String,
     pub deletion_event_hash: String,
-    pub certified_commitment: String,
+    pub certified_commitment: Option<String>,
     pub module_hash: String,
     pub timestamp: u64,
     pub deletion_seq: u64,
@@ -164,7 +164,6 @@ pub struct MktdReceiptResponse {
 #[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
 pub struct MktdPendingCertificateResponse {
     pub receipt_id: String,
-    pub certified_commitment: Vec<u8>,
     pub certificate: Vec<u8>,
 }
 
@@ -554,7 +553,7 @@ fn upsert_profile(input: ProfileInput) -> Result<ProfileInfo, DaffyError> {
     })?;
 
     // Refresh MKTd02 state hash after successful PII write
-    mktd02::refresh_state_hash(&ProfileAdapter);
+    // v5: the engine captures current state directly at deletion.
 
     Ok(result)
 }
@@ -622,15 +621,10 @@ fn delete_profile() -> Result<String, DaffyError> {
 // MKTd02 query endpoints
 // ============================================================
 
-/// Returns the current state hash with optional ICP certificate.
-/// Use this for certified verification of the canister's PII state.
+/// Operational diagnostic only; this hash is not the certified deletion value.
 #[ic_cdk::query]
-fn mktd_get_state_hash() -> MktdStateHashResponse {
-    let (hash, certificate) = mktd02::get_certified_state_hash();
-    MktdStateHashResponse {
-        hash: hash.to_vec(),
-        certificate,
-    }
+fn mktd_diag_state_hash() -> Vec<u8> {
+    mktd02::diag_state_hash().to_vec()
 }
 
 /// Returns the tombstone status of this canister.
@@ -653,23 +647,47 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&receipt_id_bytes);
 
-    mktd02::get_receipt(&arr).map(|r| MktdReceiptResponse {
-        protocol_version: r.protocol_version,
-        receipt_id: hex::encode(r.receipt_id),
-        canister_id: r.canister_id,
-        record_id: r.record_id.to_vec(),
-        pre_state_hash: hex::encode(r.pre_state_hash),
-        post_state_hash: hex::encode(r.post_state_hash),
-        tombstone_hash: hex::encode(r.tombstone_hash),
-        deletion_event_hash: hex::encode(r.deletion_event_hash),
-        certified_commitment: hex::encode(r.certified_commitment),
-        module_hash: hex::encode(r.module_hash),
-        timestamp: r.timestamp,
-        deletion_seq: r.deletion_seq,
-        bls_certificate: r.bls_certificate,
-        trust_root_key_id: r.trust_root_key_id,
-        module_hash_certificate: r.module_hash_certificate,
-    })
+    mktd02::get_receipt(&arr).map(receipt_response)
+}
+
+/// Explicit historical/v5 export; the retired commitment exists only for historical receipts.
+fn receipt_response(receipt: zombie_core::AnyDeletionReceipt) -> MktdReceiptResponse {
+    match receipt {
+        zombie_core::AnyDeletionReceipt::V4(r) => MktdReceiptResponse {
+            protocol_version: r.protocol_version,
+            receipt_id: hex::encode(r.receipt_id),
+            canister_id: r.canister_id,
+            record_id: r.record_id,
+            pre_state_hash: hex::encode(r.pre_state_hash),
+            post_state_hash: hex::encode(r.post_state_hash),
+            tombstone_hash: hex::encode(r.tombstone_hash),
+            deletion_event_hash: hex::encode(r.deletion_event_hash),
+            module_hash: hex::encode(r.module_hash),
+            timestamp: r.timestamp,
+            deletion_seq: r.deletion_seq,
+            bls_certificate: r.bls_certificate,
+            trust_root_key_id: r.trust_root_key_id,
+            module_hash_certificate: r.module_hash_certificate,
+            certified_commitment: Some(hex::encode(r.certified_commitment)),
+        },
+        zombie_core::AnyDeletionReceipt::V5(r) => MktdReceiptResponse {
+            protocol_version: r.protocol_version,
+            receipt_id: hex::encode(r.receipt_id),
+            canister_id: r.canister_id,
+            record_id: r.record_id,
+            pre_state_hash: hex::encode(r.pre_state_hash),
+            post_state_hash: hex::encode(r.post_state_hash),
+            tombstone_hash: hex::encode(r.tombstone_hash),
+            deletion_event_hash: hex::encode(r.deletion_event_hash),
+            module_hash: hex::encode(r.module_hash),
+            timestamp: r.timestamp,
+            deletion_seq: r.deletion_seq,
+            bls_certificate: r.bls_certificate,
+            trust_root_key_id: r.trust_root_key_id,
+            module_hash_certificate: r.module_hash_certificate,
+            certified_commitment: None,
+        },
+    }
 }
 
 /// Phase B: Return the pending certificate response, if available.
@@ -680,13 +698,11 @@ fn mktd_get_receipt(receipt_id_hex: String) -> Option<MktdReceiptResponse> {
 ///
 /// Response fields are:
 /// - receipt_id
-/// - certified_commitment
 /// - certificate
 #[ic_cdk::query]
 fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
     mktd02::get_pending_certificate().map(|pc| MktdPendingCertificateResponse {
         receipt_id: pc.receipt_id_hex,
-        certified_commitment: pc.certified_commitment.to_vec(),
         certificate: pc.certificate,
     })
 }
@@ -702,7 +718,7 @@ fn mktd_get_certificate() -> Option<MktdPendingCertificateResponse> {
 ///   certificate — raw BLS certificate blob (from Phase B)
 ///   module_hash_certificate — read_state certificate over
 ///     /canister/<id>/module_hash (fetched off-canister by zd-finalize-helper);
-///     stored opaquely by the engine, never parsed in-canister (mktd02-v4).
+///     stored opaquely by the engine, never parsed in-canister (mktd02-v5).
 ///
 /// On success, receipt finalization fields are written and the finalization lock is released.
 #[ic_cdk::update]

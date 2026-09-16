@@ -1,4 +1,4 @@
-// IDL for profile_canister — updated for MKTd02 v0.4.0 (mktd02-v3)
+// IDL for v5 profiles, with optional historical v4 commitment decoding.
 export const idlFactory = ({ IDL }: { IDL: any }) => {
   const DaffyError = IDL.Variant({
     ProfileDeleted: IDL.Record({ message: IDL.Text }),
@@ -50,7 +50,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     post_state_hash: IDL.Text,
     tombstone_hash: IDL.Text,
     deletion_event_hash: IDL.Text,
-    certified_commitment: IDL.Text,
+    certified_commitment: IDL.Opt(IDL.Text),
     module_hash: IDL.Text,
     timestamp: IDL.Nat64,
     deletion_seq: IDL.Nat64,
@@ -61,7 +61,6 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
 
   const MktdPendingCertificateResponse = IDL.Record({
     receipt_id: IDL.Text,
-    certified_commitment: IDL.Vec(IDL.Nat8),
     certificate: IDL.Vec(IDL.Nat8),
   });
 
@@ -74,7 +73,7 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     version: IDL.Func([], [IDL.Text], ["query"]),
 
     // MKTd02 query endpoints
-    mktd_get_state_hash: IDL.Func([], [MktdStateHashResponse], ["query"]),
+    mktd_diag_state_hash: IDL.Func([], [IDL.Vec(IDL.Nat8)], ["query"]),
     mktd_get_tombstone_status: IDL.Func([], [MktdTombstoneStatus], ["query"]),
     mktd_get_receipt: IDL.Func([IDL.Text], [IDL.Opt(MktdReceiptResponse)], ["query"]),
     mktd_receipt_count: IDL.Func([], [IDL.Nat64], ["query"]),

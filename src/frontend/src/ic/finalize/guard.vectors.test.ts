@@ -93,7 +93,7 @@ describe("recorded guard vectors (replayed through evaluateGuard)", () => {
         canisterId: TEST_CANISTER,
         receiptId: "b".repeat(64),
         expectedModuleHash: MODULE_HASH,
-        commitment: COMMITMENT,
+        expectedCertifiedData: COMMITMENT,
         moduleHashTree: syntheticTree({
           moduleHash: MODULE_HASH,
           timeNs: v.tModuleHashNs,

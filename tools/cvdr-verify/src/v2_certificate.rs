@@ -1,15 +1,25 @@
-use candid::{CandidType, Decode, Encode, Principal};
-use ic_agent::hash_tree::{LookupResult, SubtreeLookupResult};
-use ic_agent::{lookup_value, Agent, Certificate};
-use serde::Deserialize;
-use zombie_core::nns_keys;
-use zombie_core::receipt::DeletionReceipt;
+//! V2 — Direct Certification from the receipt's embedded certificate.
+//!
+//! Offline only. The embedded `bls_certificate` is validated against the
+//! explicit trust root (BLS signature, one-level NNS delegation, delegation
+//! canister range; freshness-at-verification-time is intentionally skipped for
+//! archived evidence), its `certified_data` for the receipt's canister is
+//! extracted, and:
+//!
+//! - **mktd02-v5:** `zombie_core::check_certified_data_not_genesis`
+//!   (`no-deletion-certified`), then `certified_data == deletion_event_hash`;
+//! - **mktd02-v2 … v4:** `certified_data == certified_commitment`.
+//!
+//! No live query is made here; live corroboration is a diagnostic
+//! (`crate::diagnostics`).
 
-#[derive(Debug, CandidType, Deserialize)]
-struct StateHashCertified {
-    pub certificate: Option<serde_bytes::ByteBuf>,
-    pub hash: serde_bytes::ByteBuf,
-}
+use candid::Principal;
+use ic_agent::hash_tree::{LookupResult, SubtreeLookupResult};
+use ic_agent::{lookup_value, Certificate};
+use zombie_core::{check_certified_data_not_genesis, AnyDeletionReceipt};
+
+use crate::report::{CheckOutcome, TimingFact};
+use crate::trust_root::TrustRoot;
 
 const IC_STATE_ROOT_DOMAIN_SEPARATOR: &[u8; 14] = b"\x0Dic-state-root";
 const DER_PREFIX: &[u8; 37] = b"\x30\x81\x82\x30\x1d\x06\x0d\x2b\x06\x01\x04\x01\x82\xdc\x7c\x05\x03\x01\x02\x01\x06\x0c\x2b\x06\x01\x04\x01\x82\xdc\x7c\x05\x03\x02\x01\x03\x61\x00";
@@ -17,178 +27,115 @@ const BLS_RAW_KEY_LEN: usize = 96;
 const V2_TIME_WARN_ENV: &str = "CVDR_V2_CERT_TIME_WARN_SECS";
 const DEFAULT_V2_TIME_WARN_SECS: u64 = 300;
 
-pub struct V2Result {
-    pub passed: bool,
-    pub mode: &'static str,
-    pub degraded: bool,
-    pub detail: String,
-    pub notes: Vec<String>,
+/// Named V2 failures (`no-deletion-certified` comes from zombie-core).
+pub const ERR_V2_CERTIFICATE_PARSE: &str = "v2:certificate-parse";
+pub const ERR_V2_CERTIFICATE_INVALID: &str = "v2:certificate-invalid";
+pub const ERR_V2_CERTIFIED_DATA_ABSENT: &str = "v2:certified-data-absent";
+pub const ERR_V2_CERTIFIED_DATA_MISMATCH: &str = "v2:certified-data-mismatch";
+
+/// V2 outcome plus its timing sub-result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct V2Evaluation {
+    pub outcome: CheckOutcome,
+    pub timing: Option<TimingFact>,
 }
 
-impl V2Result {
-    fn pass(mode: &'static str, degraded: bool, notes: Vec<String>) -> Self {
-        Self {
-            passed: true,
-            mode,
-            degraded,
-            detail: String::new(),
-            notes,
-        }
-    }
-
-    fn fail(mode: &'static str, degraded: bool, detail: impl Into<String>) -> Self {
-        Self {
-            passed: false,
-            mode,
-            degraded,
-            detail: detail.into(),
-            notes: vec![],
-        }
-    }
-
-    fn fail_with_notes(
-        mode: &'static str,
-        degraded: bool,
-        detail: impl Into<String>,
-        notes: Vec<String>,
-    ) -> Self {
-        Self {
-            passed: false,
-            mode,
-            degraded,
-            detail: detail.into(),
-            notes,
-        }
-    }
-
-    pub fn passed(&self) -> bool {
-        self.passed
-    }
-
-    pub fn summary(&self) -> String {
-        if self.passed {
-            if self.degraded {
-                "V2: PASS (live corroboration mode) — subnet BLS certificate valid, certified_data matches receipt commitment".to_string()
-            } else {
-                "V2: PASS (receipt-contained mode) — embedded certificate valid, certified_data matches receipt commitment".to_string()
-            }
-        } else {
-            format!("V2: FAIL [{}] — {}", self.mode, self.detail)
-        }
-    }
-}
-
-/// Verify V2: certificate path + certified_data commitment match.
-///
-/// ## Security model by mode
-///
-/// - **Receipt-contained mode** (`bls_certificate` present): verifies signature authenticity,
-///   delegation trust, canister-range authorization, and certified-data commitment match using
-///   receipt-contained data and receipt-selected trust root.
-///   It intentionally skips only freshness-at-verification-time because this path validates
-///   archived evidence captured at deletion time.
-///
-/// - **Live corroboration mode** (`bls_certificate` absent): unchanged live query path using
-///   `agent.verify(...)`, including normal freshness semantics.
-pub async fn verify(
-    agent: &Agent,
-    canister_id: Principal,
-    receipt: &DeletionReceipt,
-) -> V2Result {
-    // Receipt-contained path (finalized receipt with embedded certificate)
-    if let Some(cert_bytes) = &receipt.bls_certificate {
-        let trust_id = receipt.trust_root_key_id.trim();
-        if trust_id.is_empty() {
-            return V2Result::fail(
-                "receipt-contained",
-                false,
-                "embedded bls_certificate present but trust_root_key_id is missing",
-            );
-        }
-
-        let Some(trust_key) = nns_keys::lookup_key(trust_id) else {
-            let known: Vec<&str> = nns_keys::MAINNET_KEYS.iter().map(|k| k.id).collect();
-            return V2Result::fail(
-                "receipt-contained",
-                false,
-                format!(
-                    "Unknown trust_root_key_id '{}'. Known IDs: {}. For local-dev receipts, rebuild CVDR-Verify with --features local-replica. If this is a newer receipt, upgrade zombie-core.",
-                    trust_id,
-                    known.join(", ")
-                ),
-            );
+/// Run V2 on a decoded receipt against the explicit trust root.
+pub fn verify(receipt: &AnyDeletionReceipt, trust_root: &TrustRoot) -> V2Evaluation {
+    let (canister_id, bls_certificate, timestamp) = match receipt {
+        AnyDeletionReceipt::V5(r) => (r.canister_id, &r.bls_certificate, r.timestamp),
+        AnyDeletionReceipt::V4(r) => (r.canister_id, &r.bls_certificate, r.timestamp),
+    };
+    let Some(cert_bytes) = bls_certificate else {
+        return V2Evaluation {
+            outcome: CheckOutcome::not_evaluated("pending — Phase B certificate not yet embedded"),
+            timing: None,
         };
+    };
 
-        if trust_id != nns_keys::active_key_id() {
-            eprintln!(
-                "V2 note: receipt trust_root_key_id '{}' differs from build active key '{}'; using receipt-selected key.",
-                trust_id,
-                nns_keys::active_key_id()
-            );
-        }
-
-        return verify_from_embedded_cert(
-            cert_bytes,
-            canister_id,
-            &receipt.certified_commitment,
-            trust_key.der_bytes,
-            receipt.timestamp,
-        );
-    }
-
-    // Pending/non-finalized path: degraded live corroboration.
-    verify_via_live_query(agent, canister_id, &receipt.certified_commitment).await
-}
-
-// ---------------------------------------------------------------------------
-// Receipt-contained path (archived evidence)
-// ---------------------------------------------------------------------------
-
-fn verify_from_embedded_cert(
-    cert_bytes: &[u8],
-    canister_id: Principal,
-    expected_commitment: &[u8; 32],
-    trust_root_der: &[u8],
-    receipt_timestamp_ns: u64,
-) -> V2Result {
     let certificate: Certificate = match serde_cbor::from_slice(cert_bytes) {
         Ok(c) => c,
         Err(e) => {
-            return V2Result::fail(
-                "receipt-contained",
-                false,
-                format!("Failed to parse embedded certificate CBOR: {}", e),
-            )
+            return V2Evaluation {
+                outcome: CheckOutcome::fail(
+                    ERR_V2_CERTIFICATE_PARSE,
+                    Some(format!("embedded certificate CBOR: {e}")),
+                ),
+                timing: None,
+            }
         }
     };
+    let timing = Some(certificate_timing(&certificate, timestamp));
+    let outcome = direct_certification(receipt, &certificate, canister_id, trust_root);
+    V2Evaluation { outcome, timing }
+}
 
-    let notes = certificate_timing_notes(&certificate, receipt_timestamp_ns);
-
-    // Archived-mode verification intentionally skips freshness-at-verification-time.
-    // It still validates signature authenticity, delegation trust, canister authorization,
-    // and certified_data commitment matching.
-    if let Err(e) = verify_archived_certificate_no_freshness(&certificate, canister_id, trust_root_der)
+fn direct_certification(
+    receipt: &AnyDeletionReceipt,
+    certificate: &Certificate,
+    canister_id: Principal,
+    trust_root: &TrustRoot,
+) -> CheckOutcome {
+    if let Err(e) =
+        verify_archived_certificate_no_freshness(certificate, canister_id, trust_root.der())
     {
-        return V2Result::fail_with_notes(
-            "receipt-contained",
-            false,
-            format!(
-                "BLS certificate verification failed (receipt-contained path): {}",
-                e
-            ),
-            notes,
+        return CheckOutcome::fail(ERR_V2_CERTIFICATE_INVALID, Some(e));
+    }
+    let certified_data = match certified_data_for_canister(certificate, canister_id) {
+        Ok(d) => d,
+        Err(e) => return CheckOutcome::fail(ERR_V2_CERTIFIED_DATA_ABSENT, Some(e)),
+    };
+    let (expected, field) = match receipt {
+        AnyDeletionReceipt::V5(r) => {
+            if let Err(named) = check_certified_data_not_genesis(&r.canister_id, &certified_data) {
+                return CheckOutcome::fail(
+                    named,
+                    Some(format!("certified_data {}", hex::encode(certified_data))),
+                );
+            }
+            (r.deletion_event_hash, "deletion_event_hash")
+        }
+        AnyDeletionReceipt::V4(r) => (r.certified_commitment, "certified_commitment"),
+    };
+    if certified_data != expected {
+        return CheckOutcome::fail(
+            ERR_V2_CERTIFIED_DATA_MISMATCH,
+            Some(format!(
+                "certificate certified_data {} != receipt {field} {}",
+                hex::encode(certified_data),
+                hex::encode(expected)
+            )),
         );
     }
-
-    check_certified_data(
-        &certificate,
-        canister_id,
-        expected_commitment,
-        "receipt-contained",
-        false,
-        notes,
-    )
+    CheckOutcome::pass(format!(
+        "embedded certificate chains to trust root {} and the subnet-certified certified_data of canister {} equals the receipt's {field}",
+        trust_root.id(),
+        canister_id
+    ))
 }
+
+/// `certified_data` at `/canister/<canister_id>/certified_data`, exactly 32 bytes.
+/// Performs no signature validation; callers validate the certificate first.
+pub fn certified_data_for_canister(
+    certificate: &Certificate,
+    canister_id: Principal,
+) -> Result<[u8; 32], String> {
+    let data = lookup_value(
+        certificate,
+        [
+            b"canister".as_ref(),
+            canister_id.as_slice(),
+            b"certified_data".as_ref(),
+        ],
+    )
+    .map_err(|e| format!("certified_data not found in certificate tree: {e:?}"))?;
+    data.try_into()
+        .map_err(|_| format!("certified_data is {} bytes, expected 32", data.len()))
+}
+
+// ---------------------------------------------------------------------------
+// Archived-evidence certificate validation (shared with V3A and OpenChatZD)
+// ---------------------------------------------------------------------------
 
 fn verify_archived_certificate_no_freshness(
     cert: &Certificate,
@@ -198,11 +145,14 @@ fn verify_archived_certificate_no_freshness(
     let signer_der = match &cert.delegation {
         None => trust_root_der.to_vec(),
         Some(delegation) => {
-            let delegated_cert: Certificate = serde_cbor::from_slice(delegation.certificate.as_ref())
-                .map_err(|e| format!("Failed to parse delegation certificate CBOR: {}", e))?;
+            let delegated_cert: Certificate =
+                serde_cbor::from_slice(delegation.certificate.as_ref())
+                    .map_err(|e| format!("Failed to parse delegation certificate CBOR: {}", e))?;
 
             if delegated_cert.delegation.is_some() {
-                return Err("Delegation certificate contains nested delegation (unsupported)".to_string());
+                return Err(
+                    "Delegation certificate contains nested delegation (unsupported)".to_string(),
+                );
             }
 
             // Verify delegation certificate signature against trust root.
@@ -246,7 +196,7 @@ fn verify_signature_with_der_key(cert: &Certificate, der_key: &[u8]) -> Result<(
         .map_err(|_| "BLS signature check failed".to_string())
 }
 
-fn extract_der_public_key(der_key: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn extract_der_public_key(der_key: &[u8]) -> Result<Vec<u8>, String> {
     let expected_len = DER_PREFIX.len() + BLS_RAW_KEY_LEN;
     if der_key.len() != expected_len {
         return Err(format!(
@@ -372,36 +322,29 @@ fn authorize_canister_ranges(
     Err("Delegation certificate missing canister_ranges in both legacy (/subnet/<id>/canister_ranges) and sharded (/canister_ranges/<id>/<shard>) tree layouts".to_string())
 }
 
-fn certificate_timing_notes(cert: &Certificate, receipt_timestamp_ns: u64) -> Vec<String> {
-    let mut notes = vec![];
+/// V2 timing sub-result: certificate `/time` against the receipt timestamp.
+/// Informational only (warning past `CVDR_V2_CERT_TIME_WARN_SECS`, default 300 s).
+fn certificate_timing(cert: &Certificate, receipt_timestamp_ns: u64) -> TimingFact {
     match lookup_certificate_time_ns(cert) {
         Ok(cert_time_ns) => {
             let delta_ns = cert_time_ns as i128 - receipt_timestamp_ns as i128;
-            let delta_secs = delta_ns as f64 / 1_000_000_000f64;
-            notes.push(format!(
-                "V2 timestamp: certificate_time_ns={} receipt_time_ns={} delta_secs={:.3}",
-                cert_time_ns, receipt_timestamp_ns, delta_secs
-            ));
-
             let warn_secs = std::env::var(V2_TIME_WARN_ENV)
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(DEFAULT_V2_TIME_WARN_SECS);
-            if delta_ns.unsigned_abs() > warn_secs as u128 * 1_000_000_000u128 {
-                notes.push(format!(
-                    "V2 warning: certificate/receipt timestamp delta exceeds {}s (set {} to adjust warning threshold)",
-                    warn_secs, V2_TIME_WARN_ENV
-                ));
+            TimingFact::V2CertificateTime {
+                certificate_time_ns: cert_time_ns,
+                receipt_timestamp_ns,
+                delta_secs: delta_ns as f64 / 1_000_000_000f64,
+                warn_threshold_secs: warn_secs,
+                exceeds_warning_threshold: delta_ns.unsigned_abs()
+                    > warn_secs as u128 * 1_000_000_000u128,
             }
         }
-        Err(e) => {
-            notes.push(format!(
-                "V2 note: could not decode certificate time field: {}",
-                e
-            ));
-        }
+        Err(e) => TimingFact::V2CertificateTimeUnavailable {
+            detail: format!("could not decode certificate time field: {e}"),
+        },
     }
-    notes
 }
 
 fn lookup_certificate_time_ns(cert: &Certificate) -> Result<u64, String> {
@@ -431,104 +374,15 @@ fn decode_unsigned_leb128_u64(bytes: &[u8]) -> Result<u64, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Live corroboration path
-// ---------------------------------------------------------------------------
-
-async fn verify_via_live_query(
-    agent: &Agent,
-    canister_id: Principal,
-    expected_commitment: &[u8; 32],
-) -> V2Result {
-    // Query mktd_get_state_hash — the canister calls ic0.data_certificate()
-    // during this query, embedding the subnet's BLS-signed certificate.
-    let arg = match Encode!() {
-        Ok(a) => a,
-        Err(e) => {
-            return V2Result::fail(
-                "live-corroboration",
-                true,
-                format!("Failed to encode query args: {}", e),
-            )
-        }
-    };
-
-    let response = match agent
-        .query(&canister_id, "mktd_get_state_hash")
-        .with_arg(arg)
-        .call()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return V2Result::fail(
-                "live-corroboration",
-                true,
-                format!("query mktd_get_state_hash failed: {}", e),
-            )
-        }
-    };
-
-    let resp = match Decode!(&response, StateHashCertified) {
-        Ok(r) => r,
-        Err(e) => {
-            return V2Result::fail(
-                "live-corroboration",
-                true,
-                format!("failed to decode state hash response: {}", e),
-            )
-        }
-    };
-
-    let cert_bytes = match resp.certificate {
-        Some(c) => c.into_vec(),
-        None => {
-            return V2Result::fail(
-                "live-corroboration",
-                true,
-                "Certificate not present in query response. The canister's mktd_get_state_hash endpoint returned null for the certificate field.",
-            )
-        }
-    };
-
-    let certificate: Certificate = match serde_cbor::from_slice(&cert_bytes) {
-        Ok(c) => c,
-        Err(e) => {
-            return V2Result::fail(
-                "live-corroboration",
-                true,
-                format!("Failed to parse certificate CBOR (live path): {}", e),
-            )
-        }
-    };
-
-    if let Err(e) = agent.verify(&certificate, canister_id) {
-        return V2Result::fail(
-            "live-corroboration",
-            true,
-            format!("BLS certificate verification failed (live path): {}", e),
-        );
-    }
-
-    check_certified_data(
-        &certificate,
-        canister_id,
-        expected_commitment,
-        "live-corroboration",
-        true,
-        vec![],
-    )
-}
-
-// ---------------------------------------------------------------------------
 // OpenChatZD frozen-package reuse (spec §6/§7): the committed BLS→NNS→delegation
 // →canister-range path, run VERBATIM over `certified_data == tree_root` instead
 // of the MKTd02 `certified_commitment`. Same archived-evidence semantics
 // (signature authenticity, delegation trust, canister authorization; freshness
-// intentionally skipped). Exposed pub(crate) so `openchatzd::` reuses it without
+// intentionally skipped). Exposed pub so `openchatzd::` reuses it without
 // forking the verification logic.
 // ---------------------------------------------------------------------------
 
-pub(crate) struct CertifiedDataOutcome {
+pub struct CertifiedDataOutcome {
     /// Certificate `/time` in nanoseconds (IC consensus time).
     pub certificate_time_ns: u64,
 }
@@ -538,7 +392,7 @@ pub(crate) struct CertifiedDataOutcome {
 /// root). Returns the certificate's `/time`. Errors map to §9 rejects at the call
 /// site: signature/delegation/range failure → §9.4; certified_data mismatch →
 /// §9.3 (the caller has already required witness_root == tree_root, §9.2).
-pub(crate) fn verify_certificate_over_certified_data(
+pub fn verify_certificate_over_certified_data(
     cert_bytes: &[u8],
     canister_id: Principal,
     expected_certified_data: &[u8; 32],
@@ -562,9 +416,17 @@ pub(crate) fn verify_certificate_over_certified_data(
             b"certified_data".as_ref(),
         ],
     )
-    .map_err(|e| format!("certified_data not found for canister in certificate tree: {:?}", e))?;
+    .map_err(|e| {
+        format!(
+            "certified_data not found for canister in certificate tree: {:?}",
+            e
+        )
+    })?;
     if data.len() != 32 {
-        return Err(format!("certified_data is {} bytes, expected 32", data.len()));
+        return Err(format!(
+            "certified_data is {} bytes, expected 32",
+            data.len()
+        ));
     }
     let actual: [u8; 32] = data.try_into().unwrap();
     if &actual != expected_certified_data {
@@ -577,15 +439,17 @@ pub(crate) fn verify_certificate_over_certified_data(
     }
 
     let certificate_time_ns = lookup_certificate_time_ns(&certificate)?;
-    Ok(CertifiedDataOutcome { certificate_time_ns })
+    Ok(CertifiedDataOutcome {
+        certificate_time_ns,
+    })
 }
 
 // ---------------------------------------------------------------------------
-// V3: archived certificate over /canister/<id>/module_hash
+// V3A / OpenChatZD INDEX: archived certificate over /canister/<id>/module_hash
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub(crate) struct ModuleHashCertOutcome {
+pub struct ModuleHashOutcome {
     /// Certificate `/time` in nanoseconds (IC consensus time).
     pub certificate_time_ns: u64,
     /// The subnet-certified module hash at /canister/<id>/module_hash.
@@ -596,18 +460,19 @@ pub(crate) struct ModuleHashCertOutcome {
 /// hash at **exactly** `/canister/<canister_id>/module_hash`. Same archived-
 /// evidence machinery as [`verify_certificate_over_certified_data`] (BLS
 /// signature → NNS delegation → the delegation's canister range must cover
-/// `canister_id`), so both certificates in a V3 check validate against the
+/// `canister_id`), so both certificates in a V3A check validate against the
 /// same trust root.
 ///
 /// `lookup_value` is path-agnostic: the exact path is asserted here, so a
 /// certificate over any other path (e.g. a certified_data-only certificate)
 /// yields a lookup miss and errors — it can never be accepted as a module-hash
-/// attestation.
-pub(crate) fn verify_certificate_over_module_hash(
+/// attestation. OpenChatZD INDEX evidence reuses this path; `h_index` compare
+/// stays in the OpenChatZD verifier (folded under H_INDEX_TAG).
+pub fn verify_certificate_over_module_hash(
     cert_bytes: &[u8],
     canister_id: Principal,
     trust_root_der: &[u8],
-) -> Result<ModuleHashCertOutcome, String> {
+) -> Result<ModuleHashOutcome, String> {
     let certificate: Certificate = serde_cbor::from_slice(cert_bytes)
         .map_err(|e| format!("Failed to parse module-hash certificate CBOR: {}", e))?;
 
@@ -621,71 +486,22 @@ pub(crate) fn verify_certificate_over_module_hash(
             b"module_hash".as_ref(),
         ],
     )
-    .map_err(|e| format!("module_hash not found for canister in certificate tree: {:?}", e))?;
+    .map_err(|e| {
+        format!(
+            "module_hash not found for canister in certificate tree: {:?}",
+            e
+        )
+    })?;
     if data.len() != 32 {
         return Err(format!("module_hash is {} bytes, expected 32", data.len()));
     }
     let certified_module_hash: [u8; 32] = data.try_into().unwrap();
 
     let certificate_time_ns = lookup_certificate_time_ns(&certificate)?;
-    Ok(ModuleHashCertOutcome {
+    Ok(ModuleHashOutcome {
         certificate_time_ns,
         certified_module_hash,
     })
-}
-
-// ---------------------------------------------------------------------------
-// Shared: certified_data lookup
-// ---------------------------------------------------------------------------
-
-fn check_certified_data(
-    certificate: &Certificate,
-    canister_id: Principal,
-    expected: &[u8; 32],
-    mode: &'static str,
-    degraded: bool,
-    notes: Vec<String>,
-) -> V2Result {
-    match lookup_value(
-        certificate,
-        [
-            b"canister".as_ref(),
-            canister_id.as_slice(),
-            b"certified_data".as_ref(),
-        ],
-    ) {
-        Ok(data) => {
-            if data.len() != 32 {
-                return V2Result::fail_with_notes(
-                    mode,
-                    degraded,
-                    format!("certified_data is {} bytes, expected 32", data.len()),
-                    notes,
-                );
-            }
-            let actual: [u8; 32] = data.try_into().unwrap();
-            if actual == *expected {
-                V2Result::pass(mode, degraded, notes)
-            } else {
-                V2Result::fail_with_notes(
-                    mode,
-                    degraded,
-                    format!(
-                        "certified_data mismatch:\n  receipt:  {}\n  on-chain: {}",
-                        hex::encode(expected),
-                        hex::encode(actual)
-                    ),
-                    notes,
-                )
-            }
-        }
-        Err(e) => V2Result::fail_with_notes(
-            mode,
-            degraded,
-            format!("certified_data not found in certificate tree: {:?}", e),
-            notes,
-        ),
-    }
 }
 
 #[cfg(test)]
@@ -821,8 +637,8 @@ mod tests {
     #[test]
     fn rejects_when_ranges_absent_from_both_layouts() {
         let cert = cert_with_tree(label("time", leaf(vec![1, 2, 3])));
-        let err =
-            authorize_canister_ranges(&cert, SUBNET_ID, &Principal::from_slice(IN_RANGE)).unwrap_err();
+        let err = authorize_canister_ranges(&cert, SUBNET_ID, &Principal::from_slice(IN_RANGE))
+            .unwrap_err();
         assert!(
             err.contains("missing canister_ranges in both"),
             "unexpected error: {err}"
@@ -894,6 +710,111 @@ mod tests {
         assert!(
             err.contains("expected direct shard leaf"),
             "must reject for the depth violation, got: {err}"
+        );
+    }
+}
+
+/// The v5 V2 path over a REAL mainnet certificate. No real v5 receipt exists
+/// yet, so the v4 reference CVDR's bls certificate is placed into v5-shaped
+/// receipts. This exercises direct certification against `deletion_event_hash`;
+/// it is not a v5 receipt and is not used as one.
+#[cfg(test)]
+mod v5_path_tests {
+    use super::*;
+    use zombie_core::{DeletionReceiptV4, DeletionReceiptV5};
+
+    fn reference_v4() -> DeletionReceiptV4 {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/v4/v4_finalized_mainnet.json");
+        match crate::intake::read_receipt_file(path.to_str().unwrap()).unwrap() {
+            AnyDeletionReceipt::V4(r) => r,
+            other => panic!("expected the v4 reference, got {other:?}"),
+        }
+    }
+
+    /// A v5-shaped receipt carrying the v4 reference's real certificate, with
+    /// `deletion_event_hash` set to `certified_data_value`.
+    fn transplanted(certified_data_value: [u8; 32], with_certificate: bool) -> AnyDeletionReceipt {
+        let r = reference_v4();
+        AnyDeletionReceipt::V5(DeletionReceiptV5 {
+            protocol_version: "mktd02-v5".into(),
+            receipt_id: r.receipt_id,
+            canister_id: r.canister_id,
+            record_id: r.record_id,
+            pre_state_hash: r.pre_state_hash,
+            post_state_hash: r.post_state_hash,
+            tombstone_hash: r.tombstone_hash,
+            deletion_event_hash: certified_data_value,
+            module_hash: r.module_hash,
+            timestamp: r.timestamp,
+            deletion_seq: r.deletion_seq,
+            bls_certificate: if with_certificate {
+                r.bls_certificate
+            } else {
+                None
+            },
+            trust_root_key_id: r.trust_root_key_id,
+            module_hash_certificate: if with_certificate {
+                r.module_hash_certificate
+            } else {
+                None
+            },
+        })
+    }
+
+    fn mainnet() -> TrustRoot {
+        TrustRoot::built_in("mainnet").unwrap()
+    }
+
+    #[test]
+    fn v5_direct_certification_binds_deletion_event_hash() {
+        // The real certificate certifies the v4 receipt's certified_commitment.
+        let certified = reference_v4().certified_commitment;
+        let eval = verify(&transplanted(certified, true), &mainnet());
+        match &eval.outcome {
+            CheckOutcome::Pass { established } => {
+                assert!(established.contains("deletion_event_hash"), "{established}")
+            }
+            other => panic!("expected PASS, got {other:?}"),
+        }
+        assert!(matches!(
+            eval.timing,
+            Some(TimingFact::V2CertificateTime { .. })
+        ));
+    }
+
+    #[test]
+    fn v5_certified_data_mismatch_is_named() {
+        let eval = verify(&transplanted([0x11; 32], true), &mainnet());
+        assert_eq!(eval.outcome.error(), Some(ERR_V2_CERTIFIED_DATA_MISMATCH));
+    }
+
+    #[test]
+    fn v5_pending_is_not_evaluated() {
+        let eval = verify(&transplanted([0x11; 32], false), &mainnet());
+        assert!(matches!(eval.outcome, CheckOutcome::NotEvaluated { .. }));
+        assert_eq!(eval.timing, None);
+    }
+
+    #[test]
+    fn v5_synthetic_certificate_bytes_fail_parse_by_name() {
+        let AnyDeletionReceipt::V5(mut r) = transplanted([0x11; 32], true) else {
+            unreachable!()
+        };
+        r.bls_certificate = Some(vec![0xaa, 0xbb, 0xcc]);
+        let eval = verify(&AnyDeletionReceipt::V5(r), &mainnet());
+        assert_eq!(eval.outcome.error(), Some(ERR_V2_CERTIFICATE_PARSE));
+    }
+
+    /// The genesis check is the one V2 runs: zombie-core's named error for a
+    /// certified_data equal to the canister's genesis value.
+    #[test]
+    fn v5_genesis_certified_data_is_refused_by_the_check_v2_runs() {
+        let canister = reference_v4().canister_id;
+        let genesis = zombie_core::genesis_certified_data(&canister);
+        assert_eq!(
+            check_certified_data_not_genesis(&canister, &genesis),
+            Err(zombie_core::ERR_NO_DELETION_CERTIFIED)
         );
     }
 }

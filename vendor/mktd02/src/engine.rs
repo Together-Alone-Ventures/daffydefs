@@ -1,6 +1,8 @@
 //! # Deletion Engine
 //!
-//! Domain tags: `MKTD02_TOMBSTONE_HASH_V1`, `MKTD02_EVENT_V1`
+//! Domain tags: `MKTD02_TOMBSTONE_HASH_V1` (built here);
+//! `MKTD02_EVENT_V2` via `zombie_core::deletion_event_hash_v5` (the engine
+//! builds no event-hash preimage of its own).
 //!
 //! Core deletion flow is synchronous within a single message.
 //!
@@ -12,18 +14,31 @@
 //!   lock is acquired. This prevents any code path from changing
 //!   certified data until the receipt is finalized via
 //!   `mktd_finalize_receipt()`.
+//!
+//! ## mktd02-v5 (Direct Certification, SR-06)
+//!
+//! The deletion path publishes `deletion_event_hash` itself as certified data
+//! (no certified commitment) and emits a `DeletionReceiptV5`. It is the only
+//! path that sets a NEW certified value (see `certified.rs`).
 
-use crate::certified::publish_certified_commitment;
+use crate::certified::publish_deletion_certified;
 use crate::nonce::increment_deletion_seq;
 use crate::state::compute_state_hash;
-use crate::storage::{
-    with_storage, with_storage_mut, Hash32, MetaCell, OptionalTimestamp, ReceiptBytes,
-};
+use crate::storage::{with_storage, with_storage_mut, Hash32, OptionalTimestamp, ReceiptBytes};
 use crate::trait_def::MKTdDataSource;
 use crate::MktdConfig;
-use zombie_core::hashing::{hash_with_tag, TAG_EVENT, TAG_TOMBSTONE_HASH, ZERO_HASH};
-use zombie_core::receipt::{compute_receipt_id, DeletionReceipt, ProtocolVersion};
+use candid::Principal;
+use zombie_core::hashing::{hash_with_tag, TAG_TOMBSTONE_HASH};
+use zombie_core::receipt::{
+    compute_receipt_id, deletion_event_hash_v5, DeletionReceiptV5, ProtocolVersion,
+};
 use zombie_core::tombstone::tombstone_constant;
+
+/// Proof of being on the deletion path. The field is private to this module
+/// (which holds only the deletion path), so only the deletion path can
+/// construct it — this restricts `certified::publish_deletion_certified` to
+/// the deletion path by module visibility.
+pub(crate) struct DeletionPath(());
 
 #[derive(Debug, Clone)]
 pub enum DeletionError {
@@ -49,7 +64,7 @@ impl core::fmt::Display for DeletionError {
 ///
 /// After this call succeeds, the **finalization lock is held**. No
 /// code path may change certified data until `finalize_receipt()` is
-/// called. This is a hard invariant enforced in `publish_certified_commitment`.
+/// called. This is a hard invariant enforced in `publish_deletion_certified`.
 pub fn execute_deletion<A: MKTdDataSource>(
     adapter: &mut A,
     config: &MktdConfig,
@@ -73,7 +88,7 @@ pub fn execute_deletion<A: MKTdDataSource>(
 ///
 /// After this call succeeds, the **finalization lock is held**. No
 /// code path may change certified data until `finalize_receipt()` is
-/// called. This is a hard invariant enforced in `publish_certified_commitment`.
+/// called. This is a hard invariant enforced in `publish_deletion_certified`.
 pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     adapter: &mut A,
     _config: &MktdConfig,
@@ -111,25 +126,27 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     let deletion_seq = increment_deletion_seq();
 
     // (f) Compute tombstone_hash
-    let tombstone_hash = hash_with_tag(TAG_TOMBSTONE_HASH, &[
-        canister_id.as_slice(),
-        tombstone_constant(),
-        &timestamp.to_be_bytes(),
-        &deletion_seq.to_be_bytes(),
-    ]);
+    let tombstone_hash = compute_tombstone_hash(&canister_id, timestamp, deletion_seq);
 
     // (g) Read module_hash from storage
     let module_hash = with_storage(|s| s.meta.get().module_hash);
 
-    // (h) Compute deletion_event_hash
-    //     v0.2.0: manifest_hash removed from preimage
-    let deletion_event_hash = hash_with_tag(TAG_EVENT, &[
+    // (g2) Compute receipt_id BEFORE the event hash — the v5 event preimage
+    //      binds it (ruling A-1(a), 12 Sep 2026). Persisting the pending
+    //      receipt_id still happens at (k), once the lock is held.
+    let receipt_id = compute_receipt_id(&canister_id, &record_id, deletion_seq);
+
+    // (h) Compute deletion_event_hash via the single normative implementation
+    //     in zombie-core (MKTD02_EVENT_V2, six parts). The engine builds no
+    //     event-hash preimage of its own. manifest_hash is not in the preimage.
+    let deletion_event_hash = deletion_event_hash_v5(
         &pre_state_hash,
         &post_state_hash,
-        &timestamp.to_be_bytes(),
+        &receipt_id,
+        timestamp,
         &module_hash,
-        &deletion_seq.to_be_bytes(),
-    ]);
+        deletion_seq,
+    );
 
     // (i) Store tombstoned_at (engine-owned; see storage.rs docs)
     // is-0.7: `StableCell::set` returns the old value (was `Result` in is-0.6);
@@ -137,25 +154,27 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     with_storage_mut(|s| {
         s.tombstoned_at.set(OptionalTimestamp(Some(timestamp)));
         s.deletion_event_hash.set(Hash32(deletion_event_hash));
+        // base+1 (Q7): post_state_hash is kept for diagnostics only — it is
+        // not a verification input and never a certified value.
         s.state_hash.set(Hash32(post_state_hash));
     });
 
-    // (j) Compute + publish certified_commitment
-    //     Note: finalization lock is NOT yet held, so this call succeeds.
-    let certified_commitment =
-        publish_certified_commitment(&post_state_hash, &deletion_event_hash);
+    // (j) Publish deletion_event_hash as the certified value (Direct
+    //     Certification). Finalization lock is NOT yet held, so this succeeds.
+    publish_deletion_certified(DeletionPath(()), &deletion_event_hash);
 
     // (j2) Acquire finalization lock — from this point, no code path
     //      may call certified_data_set() until finalize_receipt() releases it.
     crate::storage::acquire_finalization_lock();
 
-    // (k) Compute and persist pending receipt_id while lock is held
-    let receipt_id = compute_receipt_id(&canister_id, &record_id, deletion_seq);
+    // (k) Persist the pending receipt_id while the lock is held. The value was
+    //     computed at (g2) because the event hash binds it; the persist step is
+    //     unchanged in position and behaviour.
     crate::storage::set_pending_receipt_id(receipt_id);
 
-    // (l) Construct receipt
-    let receipt = DeletionReceipt {
-        protocol_version: ProtocolVersion::V4.into(),
+    // (l) Construct receipt (mktd02-v5: no certified_commitment field)
+    let receipt = DeletionReceiptV5 {
+        protocol_version: ProtocolVersion::V5.into(),
         receipt_id,
         canister_id,
         record_id,
@@ -163,19 +182,17 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
         post_state_hash,
         tombstone_hash,
         deletion_event_hash,
-        certified_commitment,
         module_hash,
         timestamp,
         deletion_seq,
-        bls_certificate: None,      // Populated during finalization (Phase C)
-        trust_root_key_id: String::new(),      // Populated during finalization (Phase C)
-        module_hash_certificate: None,      // Populated during finalization (Phase C)
+        bls_certificate: None, // Populated during finalization (Phase C)
+        trust_root_key_id: String::new(), // Populated during finalization (Phase C)
+        module_hash_certificate: None, // Populated during finalization (Phase C)
     };
 
     // (m) Store receipt as CBOR in StableBTreeMap
-    let mut cbor_buf = Vec::new();
-    ciborium::into_writer(&receipt, &mut cbor_buf)
-        .expect("MKTd02: failed to CBOR-encode receipt");
+    let cbor_buf = encode_receipt(&receipt)
+        .unwrap_or_else(|e| ic_cdk::trap(format!("MKTd02: failed to CBOR-encode receipt: {e}")));
     with_storage_mut(|s| {
         s.receipts
             .insert(Hash32(receipt_id), ReceiptBytes(cbor_buf));
@@ -185,59 +202,36 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     Ok(receipt_id)
 }
 
-/// Upgrade cascade: recompute state hash and update module_hash.
+/// `tombstone_hash = hash_with_tag(MKTD02_TOMBSTONE_HASH_V1,
+/// canister_id ‖ TOMBSTONE_CONSTANT ‖ u64_be(timestamp) ‖ u64_be(deletion_seq))`.
 ///
-/// v0.2.0: Always recomputes state_hash and republishes certified_commitment.
-/// If the finalization lock is held (receipt pending), the call to
-/// `publish_certified_commitment` will trap — this is intentional.
-/// You must finalize the pending receipt before upgrading.
-pub(crate) fn upgrade_cascade<A: MKTdDataSource>(
-    adapter: &A,
-    module_hash: [u8; 32],
-) {
-    // Always recompute state_hash (defensive — catches adapter changes)
-    let state_bytes = adapter.get_state_bytes();
-    let new_state_hash = compute_state_hash(&state_bytes);
-    with_storage_mut(|s| {
-        s.state_hash.set(Hash32(new_state_hash));
-    });
-
-    // Always republish certified_commitment
-    // (Will trap if finalization lock is held — see certified.rs)
-    let existing_event_hash = with_storage(|s| s.deletion_event_hash.get().0);
-    publish_certified_commitment(&new_state_hash, &existing_event_hash);
-
-    // Update module_hash unconditionally
-    with_storage_mut(|s| {
-        let mut meta = s.meta.get().clone();
-        meta.module_hash = module_hash;
-        s.meta.set(meta);
-    });
+/// The engine's only tombstone-hash construction; the deletion path calls it
+/// at (f). Pure, so it is checked directly against the countersigned
+/// zombie-core vector gv5-002.
+pub(crate) fn compute_tombstone_hash(
+    canister_id: &Principal,
+    timestamp: u64,
+    deletion_seq: u64,
+) -> [u8; 32] {
+    hash_with_tag(
+        TAG_TOMBSTONE_HASH,
+        &[
+            canister_id.as_slice(),
+            tombstone_constant(),
+            &timestamp.to_be_bytes(),
+            &deletion_seq.to_be_bytes(),
+        ],
+    )
 }
 
-/// First-time initialisation logic.
-pub(crate) fn first_init<A: MKTdDataSource>(
-    adapter: &A,
-    config: &MktdConfig,
-    module_hash: [u8; 32],
-) {
-    let timestamp = ic_cdk::api::time();
-
-    crate::state::init_state_hash(&adapter.get_state_bytes());
-
-    let state_hash = crate::state::read_state_hash();
-    publish_certified_commitment(&state_hash, &ZERO_HASH);
-
-    with_storage_mut(|s| {
-        let meta = MetaCell {
-            schema_version: crate::storage::schema_version(),
-            memory_base: config.base_memory_id as u32,
-            initialised_at: Some(timestamp),
-            module_hash,
-            pending_receipt_id: None,
-        };
-        s.meta.set(meta);
-    });
+/// Encode a receipt for storage. zombie-core refuses to serialise a v5
+/// receipt whose `deletion_event_hash` is all-zero (`invalid-event-hash:zero`),
+/// so the engine can never store or emit one; the named error is surfaced in
+/// the trap message.
+fn encode_receipt(receipt: &DeletionReceiptV5) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    ciborium::into_writer(receipt, &mut buf).map_err(|e| e.to_string())?;
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -263,6 +257,75 @@ mod tests {
 
         // Deterministic for fixed inputs.
         let a_again = compute_receipt_id(&canister_id, b"subject-A", seq);
-        assert_eq!(a, a_again, "receipt_id must be deterministic for fixed inputs");
+        assert_eq!(
+            a, a_again,
+            "receipt_id must be deterministic for fixed inputs"
+        );
+    }
+
+    /// T9: the engine cannot produce a receipt whose deletion_event_hash is
+    /// ZERO_HASH. A SHA-256 output can't realistically be zero, so the
+    /// condition is constructed directly and fed to the engine's encode step,
+    /// which refuses it by name.
+    #[test]
+    fn t9_engine_refuses_zero_deletion_event_hash_by_name() {
+        use zombie_core::hashing::ZERO_HASH;
+        use zombie_core::receipt::{DeletionReceiptV5, ProtocolVersion};
+
+        let zero = DeletionReceiptV5 {
+            protocol_version: ProtocolVersion::V5.into(),
+            receipt_id: [1u8; 32],
+            canister_id: Principal::from_slice(&[0xCA, 0xFE, 0x01]),
+            record_id: b"subject".to_vec(),
+            pre_state_hash: [2u8; 32],
+            post_state_hash: [3u8; 32],
+            tombstone_hash: [4u8; 32],
+            deletion_event_hash: ZERO_HASH,
+            module_hash: [6u8; 32],
+            timestamp: 1,
+            deletion_seq: 1,
+            bls_certificate: None,
+            trust_root_key_id: String::new(),
+            module_hash_certificate: None,
+        };
+        let err = super::encode_receipt(&zero).unwrap_err();
+        assert!(
+            err.contains(zombie_core::ERR_INVALID_EVENT_HASH_ZERO),
+            "expected invalid-event-hash:zero, got: {err}"
+        );
+
+        // Control: the same receipt with a non-zero event hash encodes.
+        let ok = DeletionReceiptV5 {
+            deletion_event_hash: [5u8; 32],
+            ..zero
+        };
+        assert!(super::encode_receipt(&ok).is_ok());
+    }
+
+    /// P9.3(b): the engine's tombstone-hash construction reproduces the
+    /// countersigned zombie-core vector gv5-002, and the constant it binds is
+    /// the vector's TOMBSTONE_CONSTANT.
+    #[test]
+    fn p9_3_compute_tombstone_hash_matches_signed_gv5_002() {
+        use crate::corpus::{hex32_at, hex_at, load_signed_v5_vector};
+
+        let v = load_signed_v5_vector(env!("CARGO_MANIFEST_DIR"), "gv5-002").json;
+        let canister_id = Principal::from_slice(&hex_at(&v, &["inputs", "canister_id_hex"]));
+        let timestamp = v.u64_at(&["inputs", "timestamp"]);
+        let deletion_seq = v.u64_at(&["inputs", "deletion_seq"]);
+
+        assert_eq!(
+            super::compute_tombstone_hash(&canister_id, timestamp, deletion_seq),
+            hex32_at(&v, &["expected", "tombstone_hash"]),
+            "gv5-002: tombstone_hash"
+        );
+        let expected_constant = hex32_at(&v, &["expected", "tombstone_constant"]);
+        assert_eq!(
+            *zombie_core::TOMBSTONE_CONSTANT,
+            expected_constant,
+            "gv5-002: TOMBSTONE_CONSTANT"
+        );
+        // The accessor the engine actually binds at (f).
+        assert_eq!(*super::tombstone_constant(), expected_constant);
     }
 }

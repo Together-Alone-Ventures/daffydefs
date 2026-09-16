@@ -1,31 +1,35 @@
-mod fetch;
 mod openchatzd;
-mod v1_transition;
-mod v2_certificate;
-mod v3_module;
-mod v4_tombstone;
+
+// The OpenChatZD package path reuses the shared certificate machinery as
+// `crate::v2_certificate`.
+use mktd02_verify::v2_certificate;
 
 use anyhow::Result;
+use candid::Principal;
 use clap::Parser;
 use ic_agent::Agent;
-use candid::Principal;
-
-const V4_NOT_EVALUATED: &str = "V4 — code provenance: NOT EVALUATED (see published verification procedure)";
+use mktd02_verify::intake::{self, IntakeError};
+use mktd02_verify::report::{VerificationFacts, EXIT_USAGE};
+use mktd02_verify::trust_root::TrustRoot;
+use mktd02_verify::verify::{verify_receipt, VerifyOptions};
+use mktd02_verify::{diagnostics, render};
 
 #[derive(Parser)]
 #[command(name = "mktd02-verify")]
 #[command(version)]
-#[command(about = "Automated V1–V3 verification for MKTd02 CVDRs; V4 (code provenance) established by the published verification procedure")]
+#[command(
+    about = "Reference verifier for MKTd02 deletion receipts (V1, V2, V3A, V3B) and OpenChatZD packages"
+)]
 struct Cli {
-    /// Canister principal that holds the receipt (network-fetch mode)
+    /// Canister principal that holds the receipt (network-fetch intake)
     #[arg(long)]
     canister: Option<String>,
 
-    /// Hex-encoded receipt ID (network-fetch mode)
+    /// Hex-encoded receipt ID (network-fetch intake)
     #[arg(long)]
     receipt_id: Option<String>,
 
-    /// Local receipt JSON file (DaffyDefs export shape)
+    /// Local receipt file: JSON (ratified wire; v2–v4 historical tolerance) or CBOR
     #[arg(long)]
     receipt_file: Option<String>,
 
@@ -33,9 +37,25 @@ struct Cli {
     #[arg(long, default_value = "https://ic0.app")]
     network: String,
 
-    /// Optional: published WASM hash (hex) for V3 three-way comparison
+    /// Optional build provenance: published WASM module hash (hex) compared by V3B
     #[arg(long)]
     wasm_hash: Option<String>,
+
+    /// MKTd02: print the verification facts as JSON instead of the provisional human rendering
+    #[arg(long, default_value_t = false)]
+    json: bool,
+
+    /// MKTd02 (required, or --trust-root-pem): built-in IC root key to verify certificates against
+    #[arg(long, value_name = "BUILT_IN_ID", conflicts_with = "trust_root_pem")]
+    trust_root: Option<String>,
+
+    /// MKTd02 (required, or --trust-root): PEM file holding the IC root public key (e.g. PocketIC)
+    #[arg(long, value_name = "FILE")]
+    trust_root_pem: Option<String>,
+
+    /// MKTd02: also run live queries against the canister; reported separately, never part of validity
+    #[arg(long, default_value_t = false)]
+    diagnostic_live_check: bool,
 
     // --- OpenChatZD frozen-package mode (spec §2/§4/§5/§9) -------------------
     /// Verify an OpenChatZD frozen CVDR package (portable JSON). Switches into
@@ -84,6 +104,12 @@ fn decode_hash32(flag: &str, hex_text: &str) -> Result<[u8; 32]> {
         .map_err(|_| anyhow::anyhow!("{} must be 64 hex chars (32 bytes)", flag))
 }
 
+/// MKTd02 path: a usage error produces no verdict.
+fn usage_error(message: impl std::fmt::Display) -> ! {
+    eprintln!("error: {message}");
+    std::process::exit(EXIT_USAGE);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -99,6 +125,15 @@ async fn main() -> Result<()> {
         if cli.canister.is_some() || cli.receipt_id.is_some() || cli.receipt_file.is_some() {
             return Err(anyhow::anyhow!(
                 "--package is mutually exclusive with --canister/--receipt-id/--receipt-file"
+            ));
+        }
+        if cli.trust_root.is_some()
+            || cli.trust_root_pem.is_some()
+            || cli.diagnostic_live_check
+            || cli.json
+        {
+            return Err(anyhow::anyhow!(
+                "--trust-root / --trust-root-pem / --diagnostic-live-check / --json apply only to MKTd02 receipt mode"
             ));
         }
         let agent = Agent::builder().with_url(&cli.network).build()?;
@@ -121,192 +156,89 @@ async fn main() -> Result<()> {
         std::process::exit(code);
     }
 
+    run_mktd02(cli, expect_module_hash_arg).await
+}
+
+async fn run_mktd02(cli: Cli, expect_module_hash_arg: Option<[u8; 32]>) -> ! {
     // Both flags are OpenChatZD-package-mode only. Erroring beats silently ignoring a
     // gating flag — a no-op --expect-module-hash would read as "the hash was checked".
     if expect_module_hash_arg.is_some() || cli.corroborate_h_index {
-        return Err(anyhow::anyhow!(
-            "--expect-module-hash / --corroborate-h-index apply only to --package mode"
-        ));
+        usage_error("--expect-module-hash / --corroborate-h-index apply only to --package mode");
     }
-
-    let using_file_mode = cli.receipt_file.is_some();
-    if using_file_mode {
+    if cli.trust_root_key_id.is_some() {
+        usage_error(
+            "--trust-root-key-id applies only to --package mode; MKTd02 receipts use --trust-root or --trust-root-pem",
+        );
+    }
+    // The trust root is always explicit: never taken from the receipt, never defaulted.
+    let trust_root = match (&cli.trust_root, &cli.trust_root_pem) {
+        (Some(id), None) => TrustRoot::built_in(id),
+        (None, Some(path)) => TrustRoot::from_pem_file(path),
+        _ => {
+            usage_error("a trust root is required: --trust-root mainnet or --trust-root-pem <file>")
+        }
+    }
+    .unwrap_or_else(|e| usage_error(e));
+    if cli.receipt_file.is_some() {
         if cli.canister.is_some() || cli.receipt_id.is_some() {
-            return Err(anyhow::anyhow!(
-                "--receipt-file is mutually exclusive with --canister/--receipt-id"
-            ));
+            usage_error("--receipt-file is mutually exclusive with --canister/--receipt-id");
         }
     } else if cli.canister.is_none() || cli.receipt_id.is_none() {
-        return Err(anyhow::anyhow!(
-            "network-fetch mode requires both --canister and --receipt-id"
-        ));
+        usage_error("network-fetch mode requires both --canister and --receipt-id");
     }
+    let published_module_hash = cli
+        .wasm_hash
+        .as_deref()
+        .map(|h| decode_hash32("--wasm-hash", h).unwrap_or_else(|e| usage_error(e)));
 
-    let published_hash: Option<[u8; 32]> = match &cli.wasm_hash {
-        Some(h) => Some(decode_hash32("--wasm-hash", h)?),
-        None => None,
-    };
-
-    // Build agent
     let agent = Agent::builder()
         .with_url(&cli.network)
-        .build()?;
-
-    // Keep eager root-key fetch for network-fetch mode. In --receipt-file mode,
-    // run receipt-contained checks first and let live-dependent checks fail explicitly.
-    if cli.receipt_file.is_none() && cli.network != "https://ic0.app" && cli.network != "https://icp0.io" {
-        agent.fetch_root_key().await?;
+        .build()
+        .unwrap_or_else(|e| usage_error(e));
+    // Queries (receipt fetch, diagnostics) are checked by the agent against the
+    // explicit PEM root when one is given; otherwise a non-mainnet network's root
+    // key is fetched for them. Receipt verification always uses `trust_root`.
+    if cli.trust_root_pem.is_some() {
+        agent.set_root_key(trust_root.der().to_vec());
+    } else if cli.network != "https://ic0.app" && cli.network != "https://icp0.io" {
+        if let Err(e) = agent.fetch_root_key().await {
+            eprintln!("note: could not fetch root key from {}: {e}", cli.network);
+        }
     }
 
-    let (canister_id, receipt, receipt_id_display, source_display) = if let Some(path) = &cli.receipt_file {
-        let receipt = fetch::load_receipt_from_file(path)?;
-        let canister_id = receipt.canister_id;
-        let receipt_id_display = hex::encode(receipt.receipt_id);
-        (canister_id, receipt, receipt_id_display, format!("file:{}", path))
+    let (source, intake_result) = if let Some(path) = &cli.receipt_file {
+        (format!("file:{path}"), intake::read_receipt_file(path))
     } else {
-        let canister_text = cli.canister.as_ref().expect("validated above");
-        let receipt_id_text = cli.receipt_id.as_ref().expect("validated above");
+        let canister_text = cli.canister.as_deref().expect("validated above");
+        let receipt_id = cli.receipt_id.as_deref().expect("validated above");
         let canister_id = Principal::from_text(canister_text)
-            .map_err(|e| anyhow::anyhow!("Invalid canister ID: {}", e))?;
-        let receipt = fetch::fetch_receipt(&agent, canister_id, receipt_id_text).await?;
+            .unwrap_or_else(|e| usage_error(format!("invalid canister ID: {e}")));
         (
-            canister_id,
-            receipt,
-            receipt_id_text.clone(),
-            "network-fetch".to_string(),
+            format!("network-fetch:{}", cli.network),
+            intake::fetch_receipt(&agent, canister_id, receipt_id).await,
         )
     };
 
-    println!("====================================================================================");
-    println!(" CVDR-Verify: MKTd02 CVDR Verification — V1–V3 automated; V4 by published procedure");
-    println!(" Canister : {}", canister_id);
-    println!(" Receipt  : {}", receipt_id_display);
-    println!(" Source   : {}", source_display);
-    println!(" Network  : {}", cli.network);
-    println!("====================================================================================");
-    println!();
-
-    println!("Receipt load...");
-    println!("  protocol_version : {}", receipt.protocol_version);
-    println!("  deletion_seq     : {}", receipt.deletion_seq);
-    match receipt.protocol_version.as_str() {
-        "mktd02-v2" => {
-            println!("  receipt line     : v2 (legacy nonce semantics on-wire)");
-        }
-        "mktd02-v3" | "mktd02-v4" => {
-            println!(
-                "  record_id        : {} bytes ({})",
-                receipt.record_id.len(),
-                hex::encode(&receipt.record_id)
-            );
-            if receipt.protocol_version == "mktd02-v4" {
-                println!(
-                    "  module_hash_cert : {}",
-                    match &receipt.module_hash_certificate {
-                        Some(c) => format!("{} bytes (present)", c.len()),
-                        None => "absent (pending / non-attested)".to_string(),
-                    }
-                );
+    let facts = match intake_result {
+        Err(IntakeError::Unavailable(e)) => usage_error(e),
+        Err(IntakeError::Rejected(e)) => VerificationFacts::intake_rejected(source, e),
+        Ok(receipt) => {
+            let options = VerifyOptions {
+                trust_root,
+                published_module_hash,
+            };
+            let mut facts = verify_receipt(&receipt, source, &options);
+            if cli.diagnostic_live_check {
+                facts.diagnostics = Some(diagnostics::run(&agent, &receipt).await);
             }
+            facts
         }
-        _ => {
-            println!(
-                "  record_id        : {} bytes ({})",
-                receipt.record_id.len(),
-                hex::encode(&receipt.record_id)
-            );
-            println!("  receipt line     : unknown protocol_version");
-        }
+    };
+
+    if cli.json {
+        println!("{}", render::render_json(&facts));
+    } else {
+        println!("{}", render::render_human(&facts));
     }
-    println!("  Receipt loaded successfully.");
-    println!();
-
-    // Step 2: V1 — Hash recomputation
-    println!("[1/3] V1: State transition verification...");
-    let v1 = v1_transition::verify(&receipt, canister_id);
-    println!("  {}", v1.summary());
-    println!();
-
-    // Step 3: V2 — Certificate path
-    println!("[2/3] V2: Certificate verification path...");
-    let v2 = v2_certificate::verify(&agent, canister_id, &receipt).await;
-    println!("  {}", v2.summary());
-    for note in &v2.notes {
-        println!("    {}", note);
-    }
-    println!();
-
-    println!("[3/3] V3 — attested code identity...");
-    let v3a = v3_module::verify_v3a(&receipt);
-    println!("  {}", v3a.summary());
-    println!();
-
-    println!("{V4_NOT_EVALUATED}");
-    println!();
-
-    println!("INFO — live module corroboration (non-gating)...");
-    let v3 = v3_module::verify(&agent, canister_id, &receipt, published_hash).await;
-    println!("  {}", v3.summary());
-    println!();
-
-    println!("INFO — tombstone persistence (diagnostic, non-gating)...");
-    let v4 = v4_tombstone::verify(&agent, canister_id, &receipt).await;
-    println!("  {}", v4.summary());
-    println!();
-
-    // Summary
-    println!("====================================================================================");
-    println!(" CVDR Verification Summary");
-    println!("====================================================================================");
-    println!(" {:<16} : {}", "V1 (hashes)",    v1.summary());
-    println!(" {:<16} : {}", "V2 (cert path)", v2.summary());
-    println!(" {:<16} : {}", "V3 (attested)", v3a.summary());
-    println!(" {:<16} : {}", "V4 (provenance)",
-        "NOT EVALUATED — established by the published verification procedure");
-    println!(" {:<16} : {}", "INFO (live)", v3.summary());
-    println!(" {:<16} : {}", "INFO (tombstone)", v4.summary());
-    println!("====================================================================================");
-
-    // Exit gate: V1, V2, and V3 attested code identity. V3 gates ONLY on a present-but-invalid
-    // certificate (`Failed`) — a genuine integrity red flag; absent/pending/
-    // deployer-declared and DELAY_EXCEEDED are non-attested/downgrade, not process
-    // failures (pending export is permitted, labelled non-attested).
-    std::process::exit(exit_code(v1.passed(), v2.passed(), v3a.passed()));
-}
-
-fn exit_code(v1: bool, v2: bool, v3: bool) -> i32 { if v1 && v2 && v3 { 0 } else { 1 } }
-
-#[cfg(test)]
-mod cli_output_tests {
-    use super::{exit_code, V4_NOT_EVALUATED};
-    use crate::v3_module::{V3Classification, V3Result};
-    use crate::v4_tombstone::V4Result;
-
-    #[test]
-    fn tombstone_failure_is_informational_and_non_gating() {
-        let result = V4Result { tombstone_ok: false, state_hash_ok: false, detail: "not tombstoned".into() };
-        assert_eq!(exit_code(true, true, true), 0);
-        assert!(result.summary().contains("INFO — tombstone persistence (diagnostic, non-gating): FAIL"));
-    }
-
-    #[test]
-    fn live_mismatch_without_provenance_is_informational_and_non_gating() {
-        let result = V3Result { classification: V3Classification::MismatchExpected };
-        assert_eq!(exit_code(true, true, true), 0);
-        assert!(result.summary().contains("INFO — live module corroboration (non-gating): MISMATCH-EXPECTED"));
-    }
-
-    #[test]
-    fn v4_is_not_evaluated_and_has_no_verdict() {
-        assert_eq!(V4_NOT_EVALUATED, "V4 — code provenance: NOT EVALUATED (see published verification procedure)");
-        assert!(!V4_NOT_EVALUATED.contains("PASS") && !V4_NOT_EVALUATED.contains("FAIL"));
-    }
-
-    #[test]
-    fn v1_v2_and_v3_failures_still_gate() {
-        assert_eq!(exit_code(false, true, true), 1);
-        assert_eq!(exit_code(true, false, true), 1);
-        assert_eq!(exit_code(true, true, false), 1);
-        assert_eq!(exit_code(true, true, true), 0);
-    }
+    std::process::exit(facts.validity.validity.exit_code());
 }
