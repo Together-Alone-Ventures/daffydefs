@@ -31,7 +31,9 @@ Packaged Linux target:
 
 **Binary SHA-256:** `b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
 
-This binary is intentionally not described as byte-identical to upstream v0.6.1: the DaffyDefs copy carries the ruled label/presentation/gating delta.
+The DaffyDefs delta is limited to standalone workspace/source-isolation and
+convenience packaging. Verifier semantics remain those of the authoritative
+upstream source.
 
 The executable is a convenience artifact, not a trust anchor.
 
@@ -46,16 +48,14 @@ Default network endpoint in the DaffyDefs copy is `https://ic0.app`.
 
 The downloaded DaffyDefs JSON is accepted directly.
 
-## Expected current presentation
+## Current output model
 
-- V1 — internal consistency
-- V2 — certified commitment
-- V3 — attested code identity
-- V4 — code provenance: NOT EVALUATED
-- INFO — live module corroboration
-- INFO — tombstone persistence
-
-The process exit for this path is gated by V1, V2 and V3. The two INFO checks are non-gating.
+The verifier reports two axes: protocol validity and supplementary diagnostics.
+For v4/v5, validity requires V1, V2 and V3A; for v2/v3 it requires V1 and V2.
+V3B build provenance and live-state diagnostics are reported separately and are
+non-gating. The receipt's explicit trust-root identifier is recorded, while the
+operator must select the verification root explicitly with `--trust-root` or
+`--trust-root-pem`.
 
 ## Trust posture
 

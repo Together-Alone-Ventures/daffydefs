@@ -13,13 +13,13 @@ When a profile is deleted, DaffyDefs can export a Cryptographically Verifiable D
 The verification model is cumulative:
 
 - **V1 — internal consistency:** the receipt's cryptographic relationships recompute correctly.
-- **V2 — certified commitment:** the receipt commitment is backed by a valid Internet Computer certificate/delegation path.
+- **V2 — certified data:** the receipt's version-specific certified value is backed by a valid Internet Computer certificate/delegation path.
 - **V3 — attested code identity:** the receipt preserves subnet-certified evidence of the profile-canister module hash at finalisation time.
-- **V4 — code provenance:** an independent rebuild of the disclosed profile-canister source produces the same module hash that V3 attests in the receipt.
+- **V3B — build provenance:** an independent rebuild of the disclosed profile-canister source can be compared with the module hash that V3A attests in the receipt.
 
-The supplied reference verifier automates V1–V3. It deliberately reports V4 as **NOT EVALUATED**. V4 is performed by rebuilding and comparing the profile WASM.
+The supplied v0.8.0 DRAFT reference verifier evaluates the ratified validity axes. V3B build provenance is a separate, non-gating comparison using the canonical profile-WASM recipe.
 
-V1 is not a claim that arbitrary receipt contents are "true"; it establishes internal cryptographic consistency. V2–V4 add progressively stronger external evidence.
+V1 is not a claim that arbitrary receipt contents are "true"; it establishes internal cryptographic consistency. V2, V3A and V3B add progressively stronger external evidence.
 
 ## Scope
 
@@ -45,15 +45,15 @@ Keep that downloaded JSON unchanged. The strongest demonstration uses **your own
 
 If the browser is interrupted before finalisation completes, DaffyDefs can attempt lazy repair on a later authenticated visit. Recovery may retry the normal process; it does not manufacture missing evidence.
 
-## 2. V1–V3 — quickest verification
+## 2. Protocol validity — quickest verification
 
-For V1–V3 you need only:
+For protocol validity you need only:
 
 - your downloaded CVDR JSON;
 - the supplied Linux x86_64 reference verifier; and
 - ordinary public Internet access.
 
-You do **not** need the DaffyDefs source tree for V1–V3.
+You do **not** need the DaffyDefs source tree for protocol validity.
 
 ### Download the packaged reference verifier
 
@@ -64,7 +64,7 @@ curl -fL \
   --retry 5 \
   --retry-delay 2 \
   -o mktd02-verify \
-  https://raw.githubusercontent.com/Together-Alone-Ventures/daffydefs/14fb08c40f42419a4ca767982c8f797351025ff1/tools/cvdr-verify/bin/linux-x86_64/mktd02-verify
+  https://raw.githubusercontent.com/Together-Alone-Ventures/daffydefs/b4c9c79dfebdb8caf45dffe4f77418df20a95e9c/tools/cvdr-verify/bin/linux-x86_64/mktd02-verify
 
 chmod +x mktd02-verify
 ```
@@ -75,11 +75,11 @@ If you already have the repository checked out, the same accepted executable is 
 
 Its SHA-256 is:
 
-`c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f`
+`b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
 
 It reports version:
 
-`mktd02-verify 0.6.1`
+`mktd02-verify 0.8.0`
 
 The executable is a convenience artifact, **not a trust anchor**. You may instead inspect/build its source or independently implement the published checks.
 
@@ -93,28 +93,27 @@ tools/cvdr-verify/bin/linux-x86_64/mktd02-verify --version
 Expected SHA-256:
 
 ```text
-c355fe7e92a2c7db1862fb7dfa55822efc53659739abac69648cc741db7b037f
+b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c
 ```
 
 ### Run it on the exact downloaded JSON
 
 ```bash
 tools/cvdr-verify/bin/linux-x86_64/mktd02-verify \
-  --receipt-file /path/to/your-downloaded-receipt.json
+  --receipt-file /path/to/your-downloaded-receipt.json --trust-root mainnet
 ```
 
-For a valid current DaffyDefs receipt, the important result shape is:
+The output is generic and line-dependent. For v4/v5 validity is V1 ∧ V2 ∧ V3A;
+for v2/v3 validity is V1 ∧ V2. V3B and live diagnostics are non-gating.
 
 ```text
-V1: PASS
-V2: PASS
-V3 — attested code identity: SUBNET-ATTESTED
-V4 — code provenance: NOT EVALUATED
+validity: PASS  (only when the receipt's applicable validity axes pass)
+V3B — build provenance: NOT EVALUATED  (unless --wasm-hash is supplied)
 ```
 
 The tool also reports live module corroboration and tombstone persistence as **INFO / non-gating** checks.
 
-The process exit for the DaffyDefs receipt path is gated by V1, V2 and V3.
+The process exit follows the applicable protocol validity axes; supplementary diagnostics do not gate validity.
 
 ## 3. Compare the receipt with the published release identity
 
@@ -128,7 +127,7 @@ Compare that value with the `module_hash` in your receipt.
 
 A match shows that the receipt's V3-attested code identity matches the DaffyDefs release identity recorded by TAV.
 
-This is useful corroboration, but it is **not yet V4**: the release record alone does not prove that the disclosed source builds to that hash.
+This is useful corroboration, but the candidate remains an offline implementation until the mainnet ceremony supplies a fresh receipt.
 
 ## 4. Optional current-state corroboration from ICP
 
@@ -154,9 +153,9 @@ This is only **current-state corroboration**. A later canister upgrade can legit
 
 > **Tool note:** current `dfx` versions may print a deprecation warning recommending `icp-cli`. For this optional corroboration step, that warning is not itself a failure; use the returned `Module hash` result. The published procedure can migrate to `icp-cli` separately without changing the verification claim.
 
-## 5. V4 — independently rebuild the profile WASM
+## 5. V3B — independently rebuild the profile WASM
 
-V4 is the strongest code-provenance step.
+V3B is a supplementary, non-gating code-provenance step.
 
 For the accepted live release, the product/build provenance anchor is:
 
@@ -227,7 +226,7 @@ cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9  wasm_out/profi
 
 Now compare that hash with the `module_hash` V3 attests in **your own receipt**.
 
-If they match, you have completed V4 for that receipt:
+If they match, you have completed V3B for that receipt:
 
 **public source/build materials → independently rebuilt profile WASM → SHA-256 → same module hash certified in the deletion receipt.**
 
@@ -262,13 +261,13 @@ For that exact receipt:
 - V3: SUBNET-ATTESTED
 - reference verifier exit: `0`
 - live module corroboration: MATCH
-- independent V4 rebuild: same `cb16ee...` hash
+- independent V3B rebuild: same `cb16ee...` hash
 
 The normal demo should still use **your own newly generated receipt**.
 
 ## What to trust — and what not to
 
-A successful V1–V4 exercise still has residual assumptions.
+A successful V1/V2/V3A with V3B supplementary exercise still has residual assumptions.
 
 V2 and V3 rely on the public Internet Computer trust root and the IC subnet/NNS certificate model. The subnet certifies relevant state; it does not act as an oracle for copies outside the certified system boundary.
 

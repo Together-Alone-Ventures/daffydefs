@@ -10,9 +10,9 @@ Using this repository and ordinary public infrastructure, a technically competen
 2. verify that exact JSON with the supplied reference verifier;
 3. independently corroborate the relevant profile-canister module hash from ICP;
 4. compare the receipt's V3-attested code identity with the DaffyDefs release record; and
-5. perform V4 by rebuilding the profile-canister WASM from the disclosed source/build materials and comparing its SHA-256 with the module hash attested in the receipt.
+5. perform the supplementary V3B build-provenance comparison by rebuilding the profile-canister WASM from the disclosed source/build materials and comparing its SHA-256 with the module hash attested in the receipt.
 
-The reference verifier automates **V1–V3**. **V4 — code provenance — is established by the published rebuild-and-compare procedure, not by an automated V4 PASS from the reference tool.**
+The reference verifier evaluates the applicable V1, V2 and V3A validity axes. V3B build provenance is established separately by the published rebuild-and-compare procedure.
 
 ## Current live demo release
 
@@ -50,7 +50,7 @@ The reproduction was performed in multiple clean same-host configurations and in
 - `scripts/build-profile-repro.sh` — canonical profile-WASM reproducibility recipe
 - `scripts/build-capsule-container.sh` — pinned-container reproduction wrapper
 - `VENDORED_SOURCES.md` — exact upstream revisions/tree hashes and build-boundary notes
-- `docs/VERIFICATION_PROCEDURE.md` — technical V1–V4 verification procedure
+- `docs/VERIFICATION_PROCEDURE.md` — technical V1/V2/V3A/V3B verification procedure
 - `docs/RESIDUAL_TRUST_STATEMENT.md` — what the receipt does and does not establish
 - `docs/REFERENCE_VERIFIER.md` — reference-verifier packaging and trust posture
 - `docs/acceptance/` — current and historical acceptance evidence
@@ -89,7 +89,7 @@ bash scripts/build-capsule-container.sh
 
 ## Application build
 
-`scripts/build.sh` is the complete DaffyDefs application build pipeline: profile → factory → bulletin board → frontend. It is distinct from the narrower profile-WASM V4 reproducibility procedure.
+`scripts/build.sh` is the complete DaffyDefs application build pipeline: profile → factory → bulletin board → frontend. It is distinct from the narrower profile-WASM V3B reproducibility procedure.
 
 ## Scope
 

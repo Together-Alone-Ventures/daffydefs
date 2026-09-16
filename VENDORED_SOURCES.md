@@ -13,10 +13,6 @@ are fixed by the applicable `Cargo.lock` and Cargo vendor checksum metadata.
 | Verifier | CVDR-Verify v0.8.0 DRAFT | `https://github.com/Together-Alone-Ventures/CVDR-Verify.git` | `560e483b047209ee83463dfab29da07acb422feb` | exact subtree copy | `tools/cvdr-verify/` |
 | Verifier | zombie-core v0.5.0 | `https://github.com/Together-Alone-Ventures/zombie-core` | `223723885cfbb548d6b218aee8500b073fda4b58` | exact vendored copy | `tools/cvdr-verify/vendor/zombie-core/` |
 
-The CVDR-Verify repository root tree at `ad16f2a` is
-`2b0ac4bf09289be11312409dad3c8f6de7e05d86`; the verifier snapshot is the
-subtree identified separately in the table.
-
 Each vendored TAV source snapshot differs from its stated upstream tree only by
 Cargo vendor manifest normalization and an absent `.gitignore`.
 
@@ -36,20 +32,14 @@ to resolve from crates.io under `--locked`. The verifier's lockfile and TAV
 vendor directory are a separate build boundary and form no part of the
 profile-WASM source identity.
 
-## DaffyDefs verifier presentation and gating delta
+## Current verifier semantics
 
-V1–V4 are relabelled per the 15 Jul 2026 ruling, including V3-A → V3 attested
-code identity. V4 code provenance is explicitly NOT EVALUATED by this tool and
-is established by the published verification procedure.
-
-Live module corroboration: relabel only; it was already non-gating in v0.6.1.
-Tombstone persistence: behavioural change; it was a hard exit gate in v0.6.1
-and is now diagnostic and non-gating. Consequently, a tombstone-persistence
-failure that previously produced a non-zero process exit status now leaves the
-exit status determined solely by the automated V1, V2, and V3 gates. This applies equally where the informational checks fail for transport reasons — an unreachable canister yields the same non-gating INFO result as a substantive mismatch, so a run that obtained no live evidence at all still exits 0 on the strength of V1, V2 and V3 alone.
-
-The known-benign `verify_offline` and `golden_receipt_v2` dead-code warnings
-were both pre-existing at `ad16f2a` and were verified by CC.
+The authoritative v0.8.0 DRAFT source at
+`560e483b047209ee83463dfab29da07acb422feb` defines validity as V1 ∧ V2 ∧ V3A
+for v4/v5 receipts, and V1 ∧ V2 for v2/v3 receipts. V3B build provenance and
+live-state diagnostics are informational and non-gating. The DaffyDefs delta is
+limited to standalone workspace/source replacement and packaging; no verifier
+logic or verdict semantics are locally altered.
 
 DaffyDefs contains the TAV-specific source required for independent rebuilding.
 Standard public Rust dependencies are resolved from their normal public

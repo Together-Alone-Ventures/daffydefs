@@ -65,6 +65,8 @@ service : (principal, opt text) -> {
   get_display_name : () -> (opt text) query;
   // OWNER ONLY — returns full profile info.
   get_profile : () -> (Result_1) query;
+  // Operational diagnostic only; this hash is not the certified deletion value.
+  mktd_diag_state_hash : () -> (blob) query;
   // Phase C: Attach certificate data to a pending receipt.
   // 
   // This endpoint is controller-gated at the profile canister level.
@@ -76,7 +78,7 @@ service : (principal, opt text) -> {
   // certificate — raw BLS certificate blob (from Phase B)
   // module_hash_certificate — read_state certificate over
   // /canister/<id>/module_hash (fetched off-canister by zd-finalize-helper);
-  // stored opaquely by the engine, never parsed in-canister (mktd02-v4).
+  // stored opaquely by the engine, never parsed in-canister (mktd02-v5).
   // 
   // On success, receipt finalization fields are written and the finalization lock is released.
   mktd_finalize_receipt : (text, blob, blob) -> (Result);
@@ -88,15 +90,11 @@ service : (principal, opt text) -> {
   // 
   // Response fields are:
   // - receipt_id
-  // - certified_commitment
   // - certificate
   mktd_get_certificate : () -> (opt MktdPendingCertificateResponse) query;
   // Returns a full deletion receipt by ID (hex-encoded receipt_id).
   // Returns None if the receipt does not exist.
   mktd_get_receipt : (text) -> (opt MktdReceiptResponse) query;
-  // Returns the current state hash with optional ICP certificate.
-  // Use this for certified verification of the canister's PII state.
-  mktd_diag_state_hash : () -> (blob) query;
   // Returns the tombstone status of this canister.
   mktd_get_tombstone_status : () -> (MktdTombstoneStatus) query;
   // Returns whether a receipt is pending finalization.
