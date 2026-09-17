@@ -1,7 +1,6 @@
 # Vendored TAV source snapshots
 
-This Slice-5 candidate is based on DaffyDefs commit
-`d41043deb35ff2187ecce6dd2199eac74eb8729a`.
+The current DaffyDefs v5 release uses the following pinned TAV source snapshots.
 
 Only Together-Alone Ventures source snapshots are listed here. Registry crates
 are fixed by the applicable `Cargo.lock` and Cargo vendor checksum metadata.

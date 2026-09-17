@@ -1,7 +1,7 @@
 # Provenance record — `zd-finalize-helper`
 
-**Status:** RECOMPUTED, 17 Jul 2026. Substitution pending G acknowledgment.
-**Authority:** G Gate-2 A4 ruling (16 Jul 2026) + W3/W4 addendum conditions (16 Jul 2026).
+**Status:** RECOMPUTED, 17 Jul 2026. Replacement record pending reviewer acknowledgment.
+**Authority:** provenance review and addendum conditions dated 16 Jul 2026.
 
 ## What this record is
 
@@ -130,9 +130,9 @@ already contains the 1b threshold changeset.
 This value is marked **UNREPRODUCIBLE**. It is **not** replaced, and no recomputed
 value below stands in for it.
 
-Both plausible methods were tried against both candidate commits; none matches:
+Both plausible methods were tried against both possible source commits; none matches:
 
-| Candidate | Method | Value | vs `e4142244…` |
+| Possible source | Method | Value | vs `e4142244…` |
 |---|---|---|---|
 | `89b036c:helper` | git tree hash | `738b68a472c3d37f04eb3c64b9e5603b4b163f4f` | no match |
 | `89b036c:helper` | sha256 manifest (§2 method) | `c68b76d62750bd8fbf533637b947e05665564d13fabcb7ba861bdcf983bee1e9` | no match |
@@ -195,7 +195,7 @@ Subtracting the 1b-attributable changes from the above does **not** isolate the 
 `89b036c` bundles **three** distinct workstreams in a single commit — its own message
 names them: (i) Phase C wiring, (ii) the 1b threshold changeset, (iii) `guard_report`
 schema v0.2. Only (ii) is 1b. What remains after subtracting 1b therefore still
-conflates the original landing with Phase C wiring and schema v0.2, which are Gate-1
+conflates the original landing with Phase C wiring and schema v0.2, which are integration
 work from 15–16 Jul — *after* the 14 Jul landing.
 
 **The residue is an upper bound on the original landing delta, not a recovery of it.**
@@ -213,13 +213,12 @@ record described.
 
 - The original landing record (14 Jul 2026) is **LOST**; only the three prefixes in the
   table at the head of this document survive.
-- This record was **recomputed 17 Jul 2026** per G's Gate-2 A4 ruling (16 Jul 2026),
-  under the binding W3/W4 addendum conditions (16 Jul 2026).
+- This record was **recomputed 17 Jul 2026** under the provenance review and addendum conditions dated 16 Jul 2026.
 - Inputs used: `~/projects/zd-finalize-helper/` (standalone source tree; source files
   unmodified since 13 Jul 2026 — see §2 for the two post-landing additions that are
   excluded), `~/projects/zd-finalize-helper.tar.gz` (retired, read-only), and
   `ICP-Delete-Leaf @ fe55ff7`.
-- Status: **substitution pending G acknowledgment.** Until acknowledged, the cited
+- Status: **replacement record pending reviewer acknowledgment.** Until acknowledged, the cited
   prefixes remain the record of authority for §1 and §3; §2 is verified against its
   cited prefix and reproducible from two independent inputs.
 

@@ -220,7 +220,7 @@ export function certTimeNs(tree: HashTree): bigint {
 //
 //     /canister_ranges/<subnet_id>/<shard>  ->  CBOR [[start, end], ...]
 //
-// Both were observed on this subnet: certificates archived in the W5 ceremony
+// Both were observed on this subnet: certificates archived in the July 2026 ceremony
 // receipt use the new layout, and agent-js 2.4.1 rejects them outright with
 // "Could not find canister ranges for subnet". Live certificates currently use
 // the old layout and verify fine — but a subnet that switches would break every

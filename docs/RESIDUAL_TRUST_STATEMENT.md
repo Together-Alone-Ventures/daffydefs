@@ -2,20 +2,20 @@
 
 DaffyDefs is a demonstration application for ICP-Delete (Leaf). A user deleting a DaffyDefs profile can receive a Cryptographically Verifiable Deletion Receipt (CVDR).
 
-## What V1–V4 establish
+## What the current checks establish
 
 - **V1 — internal consistency:** the receipt's cryptographic relationships recompute correctly.
-- **V2 — certified commitment:** the commitment is backed by a valid IC certificate/delegation path for the relevant canister.
-- **V3 — attested code identity:** the receipt preserves subnet-certified evidence of the profile canister module hash at finalisation time.
-- **V4 — code provenance:** an independent verifier rebuilds the profile WASM from the disclosed source/dependencies/toolchain/recipe and obtains the same hash as the receipt-attested module hash.
+- **V2 — certified deletion-event evidence:** the deletion-event hash is backed by a valid IC certificate/delegation path for the relevant canister.
+- **V3A — attested code identity:** the receipt preserves subnet-certified evidence of the profile canister module hash at finalisation time.
+- **V3B — supplementary/non-gating build provenance:** an independent verifier rebuilds the profile WASM from the disclosed source/dependencies/toolchain/recipe and obtains the same hash as the receipt-attested module hash.
 
-The supplied reference verifier automates V1–V3. It does **not** report V4 as passed.
+The supplied reference verifier evaluates V1, V2 and V3A for v5 validity with an explicitly selected trust root (`--trust-root mainnet` for this demo). V3B is supplementary/non-gating and is not evaluated without supplied build provenance.
 
 ## Internet Computer trust root and subnet residual
 
-V2 and V3 ultimately rely on the public Internet Computer trust root and on the security assumptions of the subnet/NNS certificate system.
+V2 and V3A ultimately rely on the public Internet Computer trust root and on the security assumptions of the subnet/NNS certificate system.
 
-The subnet certifies **state**: the receipt commitment and the canister module-hash state witnessed by the certificates. It does not independently observe or certify a physical "deletion act" outside that state model.
+The subnet certifies **state**: the deletion-event hash and the canister module-hash state witnessed by the certificates. It does not independently observe or certify a physical "deletion act" outside that state model.
 
 A successful CVDR verification therefore means the cryptographic state/evidence claims validate under the IC trust root; it is not an oracle for data copies outside the certified system boundary.
 
@@ -43,11 +43,11 @@ A later profile-canister upgrade can change the live module hash. That does not 
 
 A verifier may independently read the current profile canister module hash from ICP.
 
-That is useful corroboration but is not a substitute for the archived code-identity evidence in an older receipt and is not V4 source provenance.
+That is useful corroboration but is not a substitute for the archived code-identity evidence in an older receipt and is not V3B source provenance.
 
 ## Tombstone persistence
 
-Tombstone persistence is informational and non-gating in the current DaffyDefs reference tool. A transport failure or tombstone-diagnostic failure does not become an integrity PASS; it simply does not alter the V1–V3 process exit.
+Tombstone persistence is informational and non-gating in the current DaffyDefs reference tool. A transport failure or tombstone-diagnostic failure does not become an integrity PASS; it simply does not alter the V1/V2/V3A validity result.
 
 ## Source/build provenance
 
@@ -57,15 +57,13 @@ The released profile build is pinned to Rust `1.97.1` and `ic-wasm 0.11.1`; the 
 
 The product/build provenance anchor used for the accepted deployment is:
 
-`14fb08c40f42419a4ca767982c8f797351025ff1`
+`e2b073971aae5f1c97edee59875bec15628821c7`
 
 The released post-shrink profile hash is:
 
-`cb16ee538cd0dfc13ea3847a04b4b6c05f29ff9ad764d65cb52b9619a4af28c9`
+`30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb`
 
-The same bytes were reproduced in multiple clean same-host configurations and in a pinned Debian container. A fresh mainnet receipt from newly minted profile `5ff4g-7qaaa-aaaaj-qsehq-cai` V3-attests that same module hash.
-
-An independent exact-source rebuild was also performed during the acceptance walkthrough and produced the same hash.
+The canonical build reproduced that hash. The accepted receipt from profile `petd6-ciaaa-aaaaj-qshha-cai` V3A-attests the same module hash; see the current release record and dated ceremony evidence.
 
 No physically distinct-hardware reproduction is claimed.
 

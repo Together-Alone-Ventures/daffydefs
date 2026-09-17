@@ -21,7 +21,7 @@ $ dfx canister call 5b3yq-gqaaa-aaaaj-qp4ta-cai list_permitted \
 ```
 
 The `Prepare` list is empty, and `q3gkv-…-dqe` is also the sole controller. That
-principal is signer `zd-deployer` (RELEASES.md §W5), which lives only on the
+principal is signer `zd-deployer` (July 2026 deployment record), which lives only on the
 desktop. The deploy must run there; the key is not to be imported elsewhere.
 
 ## 1. Check out
@@ -144,7 +144,7 @@ dfx canister info <id> --network ic --identity anonymous
 | bulletin_board | `5iytm-qyaaa-aaaaj-qp4sq-cai` | `2c05915e32a391c8c2838af16dcb8a017cef5fa8353f04a006f00096ac158cf9` |
 
 Both were confirmed at these values on 2026-08-02, before the deploy. The
-factory hash is the W5 go-live anchor. **If either has changed, stop everything
+factory hash is the July 2026 deployment anchor. **If either has changed, stop everything
 and escalate — an asset deploy must not touch these canisters.**
 
 **c. The asset canister wasm is unchanged.** Same command against

@@ -40,7 +40,7 @@ The accepted profile-WASM SHA-256 is:
 30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb
 ```
 
-Compare it directly with `module_hash` in your receipt. Equality binds the receipt's attested code identity to this accepted profile build. No separate live-module lookup is needed for this walkthrough.
+This is also the current profile hash in [RELEASES.md](../RELEASES.md); the [canonical verification procedure](VERIFICATION_PROCEDURE.md) defines the technical checks. Compare it directly with `module_hash` in your receipt. Equality binds the receipt's attested code identity to this accepted profile build. No separate live-module lookup is needed for this walkthrough.
 
 ## 3. Optional V3B: rebuild the profile WASM
 

@@ -600,7 +600,6 @@ function App() {
                   : "Finalising Deletion"}
               </span>
             </nav>
-            {/* FIX 5: was a nested <main>, changed to <div> */}
             <div className="main-content">
               {!cvdrData && (
                 <div className="card">
@@ -686,7 +685,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>DaffyDefs v0.2.0 — Phase 3b</p>
+        <p>DaffyDefs</p>
       </footer>
     </div>
   );

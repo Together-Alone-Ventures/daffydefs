@@ -1,6 +1,10 @@
 # DaffyDefs — Acceptance Evidence
 
-## Current demo release acceptance — 15 Aug 2026
+## Current acceptance — 16 September 2026
+
+See the [ceremony record](ceremony-2026-09-16.md) and [current release identity](../../RELEASES.md). The dated records below describe earlier tools and releases.
+
+## Historical demo release acceptance — 15 Aug 2026
 
 A fresh profile was minted through the live DaffyDefs application after the factory had been upgraded to embed the reproducibly built profile WASM.
 
@@ -158,10 +162,11 @@ independent published record, not read back from the receipt under test.
 ============================================================
 ```
 
-## Check-label translation
+## Historical check-label translation
 
-`mktd02-verify 0.6.1` predates the check renumbering, so its labels do not read
-across directly:
+The following table preserves the terminology used in the August record; “Current” in that table refers to that historical record, not the present v5 model. See the current verification procedure for V1/V2/V3A/V3B.
+
+`mktd02-verify 0.6.1` predates that renumbering:
 
 | v0.6.1 label | Current meaning |
 |---|---|
@@ -188,6 +193,8 @@ module_hash_certificate
 Result: **15/15 present on both**, no empty or null values. The only key beyond
 the 15 is `timestamp_iso`, a derived convenience field; the verifier ignores
 unknown keys.
+
+Historical v0.6.1 behaviour only. The current v5 verifier uses strict receipt intake and rejects unknown wire fields; `timestamp_iso` is therefore no longer emitted by the DaffyDefs CVDR exporter.
 
 `module_hash_certificate` is the field the attested-code-identity check depends
 on. Both receipts reach SUBNET-ATTESTED, which is only reachable because that

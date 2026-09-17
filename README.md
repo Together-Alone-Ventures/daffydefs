@@ -35,7 +35,7 @@ The reference verifier evaluates the applicable V1, V2 and V3A validity axes. V3
 
 The 16 Sep 2026 untouched browser receipt passed V1 / V2 / V3A and overall validity under both the packaged verifier and a fresh verifier built from `560e483b047209ee83463dfab29da07acb422feb` (0.8.0 DRAFT, no release tag). V3B was not evaluated in those invocations; it is supplementary/non-gating build provenance. The canonical, deployed and receipt-attested profile hashes match. The canonical recipe reproduced that profile hash during this capsule freeze.
 
-Start with [the self-contained Demo Pack](docs/DEMO_PACK.md). Its current identity values supersede the older release/acceptance prose pending a separate documentation pass. Byte-exact reproducibility applies only to profile-canister WASM; no reproduction on physically distinct hardware is claimed.
+Start with [the self-contained Demo Pack](docs/DEMO_PACK.md). The [current release record](RELEASES.md) and [verification procedure](docs/VERIFICATION_PROCEDURE.md) define the published identity and V3B comparison. Byte-exact reproducibility applies only to profile-canister WASM; no reproduction on physically distinct hardware is claimed.
 
 ## Repository map
 
@@ -54,7 +54,7 @@ Start with [the self-contained Demo Pack](docs/DEMO_PACK.md). Its current identi
 - `docs/RESIDUAL_TRUST_STATEMENT.md` — what the receipt does and does not establish
 - `docs/REFERENCE_VERIFIER.md` — reference-verifier packaging and trust posture
 - `docs/acceptance/receipts/` — banked current and historical receipt evidence
-- `RELEASES.md` — earlier release/deployment records (current identity is above)
+- `RELEASES.md` — current release identity and profile build provenance
 
 ## Rebuilding the profile WASM
 
@@ -89,4 +89,4 @@ Expected released output:
 
 The CVDR code-identity/provenance claim is about the **profile canister identified by the receipt**. The factory, bulletin board, frontend and reference verifier are outside that profile-WASM provenance boundary.
 
-Older acceptance and deployment prose under `docs/acceptance/` and `RELEASES.md` remains historical evidence, even where it retains an older “current” heading. It does not define this release.
+Dated historical acceptance and deployment records under `docs/acceptance/` do not define the current release.

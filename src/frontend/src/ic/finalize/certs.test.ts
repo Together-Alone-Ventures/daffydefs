@@ -12,7 +12,7 @@
 //   old: /subnet/<subnet_id>/canister_ranges      -> CBOR [[start, end], ...]
 //   new: /canister_ranges/<subnet_id>/<shard>     -> CBOR [[start, end], ...]
 //
-// Certificates archived in the W5 ceremony receipt use the new layout, which
+// Certificates archived in the July 2026 ceremony receipt use the new layout, which
 // agent-js 2.4.1's own check_canister_ranges cannot read.
 
 import { describe, expect, it } from "vitest";
