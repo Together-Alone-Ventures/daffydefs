@@ -38,4 +38,4 @@ Compare the result with this record's profile hash and your receipt's `module_ha
 
 The byte-exact reproducibility claim applies only to the final post-shrink profile-canister WASM. The verifier binary, frontend and factory are not reproducibility targets. No reproduction on physically distinct hardware is claimed.
 
-The ceremony implementation anchor identifies the deployed ceremony code. Later documentation and frontend presentation changes do not imply another deployment. Earlier release records remain available in Git history and dated acceptance evidence.
+The ceremony implementation anchor identifies the code used for the accepted receipt. Later documentation and frontend presentation changes do not alter that ceremony evidence or the profile-WASM provenance claim. Earlier release records remain available in Git history and dated acceptance evidence.
