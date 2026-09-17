@@ -2,8 +2,6 @@
 
 Create a profile, delete it once, let automatic finalisation finish, download your CVDR, and verify that exact JSON.
 
-**Distribution gate pending (17 Sep 2026):** the unauthenticated GitHub verifier and source-archive URLs below returned HTTP 404 during the freeze check. The pinned artifacts exist in the repository and pass local checks, but the no-credentials outsider walkthrough cannot be completed until public access is available.
-
 ## 1. Obtain your own receipt
 
 Open https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/ and sign in with Internet Identity. Create a profile, then delete it once. Wait for automatic finalisation; there is no extra user finalisation action. Download the CVDR when the finalized receipt is ready and keep the file unchanged.
