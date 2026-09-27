@@ -124,6 +124,13 @@ pub fn verify_v3a(receipt: &AnyDeletionReceipt, trust_root: &TrustRoot) -> V3aEv
             bls_certificate: &r.bls_certificate,
             module_hash_certificate: &r.module_hash_certificate,
         },
+        AnyDeletionReceipt::V51(r) => V3aInputs {
+            canister_id: r.canister_id,
+            module_hash: r.module_hash.expect("FinalizedCandidate has module_hash"),
+            bound_certified_data: r.deletion_event_hash,
+            bls_certificate: &r.bls_certificate,
+            module_hash_certificate: &r.module_hash_certificate,
+        },
         AnyDeletionReceipt::V4(r) => V3aInputs {
             canister_id: r.canister_id,
             module_hash: r.module_hash,
@@ -219,6 +226,7 @@ pub fn verify_v3b(receipt: &AnyDeletionReceipt, published_hash: Option<[u8; 32]>
     };
     let module_hash = match receipt {
         AnyDeletionReceipt::V5(r) => r.module_hash,
+        AnyDeletionReceipt::V51(r) => match r.module_hash { Some(hash) => hash, None => return CheckOutcome::not_evaluated(REASON_V3A_PENDING) },
         AnyDeletionReceipt::V4(r) => r.module_hash,
     };
     if module_hash == published {

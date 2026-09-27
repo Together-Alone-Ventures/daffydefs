@@ -15,6 +15,7 @@ pub fn to_cbor_bytes(receipt: &AnyDeletionReceipt) -> Vec<u8> {
     let res = match receipt {
         AnyDeletionReceipt::V4(r) => ciborium::into_writer(r, &mut buf),
         AnyDeletionReceipt::V5(r) => ciborium::into_writer(r, &mut buf),
+        AnyDeletionReceipt::V51(r) => ciborium::into_writer(r, &mut buf),
     };
     res.expect("MKTd02: CBOR encoding of receipt failed");
     buf
@@ -26,6 +27,7 @@ pub fn to_json(receipt: &AnyDeletionReceipt) -> String {
     match receipt {
         AnyDeletionReceipt::V4(r) => serde_json::to_string_pretty(r),
         AnyDeletionReceipt::V5(r) => serde_json::to_string_pretty(r),
+        AnyDeletionReceipt::V51(r) => serde_json::to_string_pretty(r),
     }
     .expect("MKTd02: JSON encoding of receipt failed")
 }

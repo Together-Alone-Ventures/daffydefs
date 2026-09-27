@@ -11,10 +11,16 @@
 //!   receipt wire, then decoded by `AnyDeletionReceipt`. Fetching a receipt is
 //!   intake, not a live check.
 
-use candid::{CandidType, Decode, Encode, Principal};
+use candid::Principal;
+#[cfg(feature = "live")]
+use candid::{CandidType, Decode, Encode};
+#[cfg(feature = "live")]
 use ic_agent::Agent;
+#[cfg(feature = "live")]
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+#[cfg(feature = "live")]
+use serde_json::Map;
+use serde_json::{json, Value};
 use zombie_core::AnyDeletionReceipt;
 
 /// Why intake produced no receipt.
@@ -139,6 +145,7 @@ fn apply_historical_tolerance(value: &mut Value, label: &str) -> Result<(), Inta
 /// types ("Not a valid visitor: ContentVisitor" with serde ≥ 1.0.220).
 /// `certified_commitment` is optional so a v5 endpoint without it decodes; if a
 /// v5 response carries it, zombie-core refuses the receipt by name.
+#[cfg(feature = "live")]
 #[derive(Debug, Clone, CandidType, Deserialize)]
 pub struct MktdReceiptResponse {
     pub protocol_version: String,
@@ -163,6 +170,7 @@ pub struct MktdReceiptResponse {
 /// Typed conversion of the Candid response into the receipt wire (JSON value).
 /// Hex text passes through as hex, blobs become hex, numbers stay numbers; a v2
 /// line carries its counter as `nonce`.
+#[cfg(feature = "live")]
 pub fn candid_response_to_wire(r: &MktdReceiptResponse) -> Value {
     let mut wire = Map::new();
     let mut put = |k: &str, v: Value| {
@@ -208,6 +216,7 @@ pub fn candid_response_to_wire(r: &MktdReceiptResponse) -> Value {
 
 /// Fetch a receipt from the canister by hex receipt id (`opt` response first,
 /// then a non-optional decode for endpoint variation).
+#[cfg(feature = "live")]
 pub async fn fetch_receipt(
     agent: &Agent,
     canister_id: Principal,

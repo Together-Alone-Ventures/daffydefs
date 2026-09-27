@@ -22,6 +22,7 @@ pub fn verify_receipt(
     let state = receipt.state();
     let (canister_id, receipt_trust_root_key_id) = match receipt {
         AnyDeletionReceipt::V5(r) => (r.canister_id, r.trust_root_key_id.clone()),
+        AnyDeletionReceipt::V51(r) => (r.canister_id, r.trust_root_key_id.clone().unwrap_or_default()),
         AnyDeletionReceipt::V4(r) => (r.canister_id, r.trust_root_key_id.clone()),
     };
 

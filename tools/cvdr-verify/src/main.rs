@@ -73,24 +73,36 @@ struct Cli {
     #[arg(long, default_value_t = openchatzd::DEFAULT_WINDOW_HOURS)]
     window_hours: u64,
 
-    /// Trust-root key id for the certificate path (default: build active key).
+    /// Trust-root SELECTOR for FrozenWire/V2 inputs (default: build active key). A PortablePackageV3
+    /// carries its own selector; a differing value here is a conflict (FAIL). Never evidence.
     #[arg(long)]
     trust_root_key_id: Option<String>,
 
-    /// TEST-ONLY: allow a frozen package's own `root_key_hex` to be used as the certificate trust
-    /// anchor (e.g. a PocketIC end-to-end fixture, whose NNS root is not a built-in key). Off by
-    /// default — a fixture must never silently supply its own trust anchor. Use is announced loudly.
+    /// Verifier clock in ns (TEST/AUDIT ONLY): used solely to split V3A pending-in-protected-window
+    /// from permanently-unavailable when a package carries no index evidence. Default: system time.
+    #[arg(long)]
+    now_ns: Option<u64>,
+
+    /// TEST-ONLY: honour the `non-production-test-root` selector / a FrozenWire `root_key_hex` as the
+    /// trust anchor (e.g. a PocketIC end-to-end fixture). Off by default — a non-production root is
+    /// never used silently; when used, the verdict says so.
     #[arg(long, default_value_t = false)]
     allow_fixture_root_key: bool,
 
-    /// Expected executor module hash (64 hex chars). GATING and OFFLINE: the receipt's
-    /// hash-bound `h_index` is recomputed from this hash and must match, else REJECT.
+    /// TEST-ONLY, requires --allow-fixture-root-key: the non-production trust root (DER, hex) selected
+    /// by a PortablePackageV3 `trust_root_key_id = "non-production-test-root"`, supplied OUT OF BAND
+    /// (a V3 package carries no root material — fail closed on unknown keys). Alternative to a
+    /// FrozenWire `root_key_hex`.
+    #[arg(long)]
+    fixture_root_key_hex: Option<String>,
+
+    /// Operator expectation for the Index module hash (64 hex). GATING when supplied: must equal the
+    /// V3A-certified module hash (RECEIPT_BODY_V2) or reproduce `h_index` (historical V1 body).
     #[arg(long)]
     expect_module_hash: Option<String>,
 
-    /// Read the index canister's live module_hash via read_state (needs --network
-    /// reachable). On its own this only DISPLAYS the live hash and verifies nothing.
-    /// With --expect-module-hash it GATES: live hash must equal the expected one.
+    /// DIAGNOSTIC ONLY: read the Index's live module_hash via read_state (needs --network). Reported
+    /// in its own block; never part of validity (a legitimately upgraded Index differs).
     #[arg(long, default_value_t = false)]
     corroborate_h_index: bool,
 }
@@ -143,14 +155,28 @@ async fn main() -> Result<()> {
         {
             agent.fetch_root_key().await?;
         }
+        if cli.fixture_root_key_hex.is_some() && !cli.allow_fixture_root_key {
+            return Err(anyhow::anyhow!(
+                "--fixture-root-key-hex requires --allow-fixture-root-key (a non-production root is never used silently)"
+            ));
+        }
+        let fixture_root_key_der =
+            match &cli.fixture_root_key_hex {
+                Some(h) => Some(hex::decode(h.trim()).map_err(|e| {
+                    anyhow::anyhow!("--fixture-root-key-hex must be valid hex: {e}")
+                })?),
+                None => None,
+            };
         let cfg = openchatzd::Config {
             package_path: package_path.clone(),
+            fixture_root_key_der,
             reveal_path: cli.reveal.clone(),
             window_hours: cli.window_hours,
             trust_root_key_id: cli.trust_root_key_id.clone(),
             allow_fixture_root_key: cli.allow_fixture_root_key,
             corroborate_h_index: cli.corroborate_h_index,
             expect_module_hash: expect_module_hash_arg,
+            now_ns: cli.now_ns,
         };
         let code = openchatzd::run(&agent, cfg).await?;
         std::process::exit(code);
@@ -165,9 +191,10 @@ async fn run_mktd02(cli: Cli, expect_module_hash_arg: Option<[u8; 32]>) -> ! {
     if expect_module_hash_arg.is_some() || cli.corroborate_h_index {
         usage_error("--expect-module-hash / --corroborate-h-index apply only to --package mode");
     }
-    if cli.trust_root_key_id.is_some() {
+    if cli.trust_root_key_id.is_some() || cli.now_ns.is_some() || cli.fixture_root_key_hex.is_some()
+    {
         usage_error(
-            "--trust-root-key-id applies only to --package mode; MKTd02 receipts use --trust-root or --trust-root-pem",
+            "--trust-root-key-id / --now-ns / --fixture-root-key-hex apply only to --package mode; MKTd02 receipts use --trust-root or --trust-root-pem",
         );
     }
     // The trust root is always explicit: never taken from the receipt, never defaulted.

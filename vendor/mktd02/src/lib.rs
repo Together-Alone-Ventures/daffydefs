@@ -270,6 +270,15 @@ pub fn get_receipt_summary(receipt_id: &[u8; 32]) -> Option<ReceiptSummary> {
     get_receipt(receipt_id).map(|r| match &r {
         AnyDeletionReceipt::V4(r) => ReceiptSummary::from(r),
         AnyDeletionReceipt::V5(r) => ReceiptSummary::from(r),
+        AnyDeletionReceipt::V51(r) => ReceiptSummary {
+            receipt_id: r.receipt_id,
+            canister_id: r.canister_id,
+            protocol_version: r.protocol_version.clone(),
+            timestamp: r.timestamp,
+            deletion_seq: r.deletion_seq,
+            state_changed: r.pre_state_hash != r.post_state_hash,
+            state: r.state(),
+        },
     })
 }
 
@@ -340,6 +349,7 @@ mod tests {
             match &any {
                 AnyDeletionReceipt::V4(r) => assert_eq!(r.protocol_version, label),
                 AnyDeletionReceipt::V5(_) => panic!("{label} must decode as DeletionReceiptV4"),
+                AnyDeletionReceipt::V51(_) => panic!("{label} must decode as DeletionReceiptV4"),
             }
             assert_eq!(
                 export::to_cbor_bytes(&any),

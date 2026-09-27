@@ -31,8 +31,24 @@ pub const PORTABLE_SCHEMA_ID: &str = "openchatzd.cvdr.portable_package";
 pub const REVEAL_SCHEMA_ID: &str = "openchatzd.cvdr.reveal_package";
 /// Highest frozen-package schema version this build understands.
 pub const SUPPORTED_VERSION: u64 = 1;
-/// Highest PortablePackageV2 schema version this build understands.
-pub const SUPPORTED_PORTABLE_VERSION: u64 = 2;
+/// LIVE portable package version (suite v5, R-6): exact match, fail closed on anything else.
+pub const PORTABLE_VERSION_V3: u64 = 3;
+/// HISTORICAL portable package version (pre-v5 PortablePackageV2): decoded, never emitted.
+pub const PORTABLE_VERSION_V2: u64 = 2;
+/// `trust_root_key_id` SELECTOR values a package may carry (R-6 / G step-5 rule 1). The id only
+/// selects a verifier-configured trusted root; it is never evidence.
+pub const TRUST_ROOT_MAINNET: &str = "mainnet";
+pub const TRUST_ROOT_NON_PRODUCTION: &str = "non-production-test-root";
+/// Exact key set of a PortablePackageV3 document; any other key is malformed (fail closed).
+const V3_KEYS: [&str; 6] = [
+    "schema",
+    "version",
+    "encoding",
+    "trust_root_key_id",
+    "frozen",
+    "index_code_identity_evidence",
+];
+const V3_EVIDENCE_KEYS: [&str; 2] = ["certificate_bytes", "index_module_hash"];
 
 /// Decoded six-field frozen package (spec §4), byte fields as raw bytes. Plus an OPTIONAL,
 /// non-verification `root_key_der`: a fixture-supplied trust anchor, decoded from `root_key_hex`.
@@ -54,6 +70,9 @@ pub struct FrozenPackage {
 #[derive(Debug, Clone)]
 pub struct RevealPackage {
     pub salt: [u8; 32],
+    /// RevealWire v2 (R-1): the per-deletion `record_salt` — lets the user recompute the displayed
+    /// non-identifying `record_id`. `None` on a historical v1 reveal package.
+    pub record_salt: Option<[u8; 32]>,
     /// Targets as principal text, in the order supplied (ascending order is
     /// enforced downstream by `body::targets_commitment(.., enforce_sorted=true)`).
     pub targets: Vec<candid::Principal>,
@@ -70,7 +89,10 @@ impl ByteEncoding {
         match name.to_ascii_lowercase().as_str() {
             "hex" => Ok(ByteEncoding::Hex),
             "base64" | "b64" => Ok(ByteEncoding::Base64),
-            other => bail!("unsupported `encoding` '{}': expected \"hex\" or \"base64\"", other),
+            other => bail!(
+                "unsupported `encoding` '{}': expected \"hex\" or \"base64\"",
+                other
+            ),
         }
     }
 
@@ -78,7 +100,10 @@ impl ByteEncoding {
         let s = s.trim();
         match self {
             ByteEncoding::Hex => {
-                let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+                let s = s
+                    .strip_prefix("0x")
+                    .or_else(|| s.strip_prefix("0X"))
+                    .unwrap_or(s);
                 hex::decode(s).with_context(|| format!("field `{}` is not valid hex", field))
             }
             ByteEncoding::Base64 => base64::engine::general_purpose::STANDARD
@@ -130,15 +155,9 @@ fn decode_array32(enc: ByteEncoding, field: &str, s: &str) -> Result<[u8; 32]> {
 }
 
 impl FrozenPackage {
-    pub fn from_path(path: &str) -> Result<Self> {
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("failed to read frozen package '{}'", path))?;
-        Self::from_json(&raw).with_context(|| format!("in frozen package '{}'", path))
-    }
-
     pub fn from_json(raw: &str) -> Result<Self> {
-        let wire: FrozenWire =
-            serde_json::from_str(raw).context("frozen package is not valid JSON of the expected shape")?;
+        let wire: FrozenWire = serde_json::from_str(raw)
+            .context("frozen package is not valid JSON of the expected shape")?;
 
         if let Some(schema) = &wire.schema {
             if schema != FROZEN_SCHEMA_ID {
@@ -179,20 +198,42 @@ impl FrozenPackage {
     }
 }
 
-/// INDEX code-identity evidence blob (spec §14.2): complete `read_state` certificate bytes.
-#[derive(Debug, Clone)]
+/// INDEX code-identity evidence: the complete `read_state` certificate bytes and (V3) the
+/// `index_module_hash` the Index extracted from it — DISPLAYED, and equality-checked by V3A
+/// against the BLS-authenticated value. `None` on historical V2 packages.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexCodeIdentityEvidence {
     pub certificate_bytes: Vec<u8>,
+    pub index_module_hash: Option<[u8; 32]>,
 }
 
-/// PortablePackageV2 (spec §14.1): nested FrozenWire + INDEX evidence.
+/// PortablePackageV3 (live) or PortablePackageV2 (historical): nested FrozenWire + INDEX evidence.
+///
+/// `frozen_exact_bytes` retains the decoded nested FrozenWire JSON byte vector
+/// exactly as carried in the outer package (Gate B byte identity). Parsing must
+/// not discard these bytes in favour of a reconstructed encoding.
 #[derive(Debug, Clone)]
 pub struct PortablePackage {
+    /// 3 (live) or 2 (historical) — exact.
+    pub version: u64,
+    /// V3: the trust-root SELECTOR the Index stamped (`mainnet` | `non-production-test-root`).
+    /// Never evidence: V3A authenticates the certificate under the root this id selects in the
+    /// verifier's own configuration. `None` on historical V2.
+    pub trust_root_key_id: Option<String>,
     pub frozen: FrozenPackage,
+    /// Exact nested FrozenWire JSON bytes decoded from the outer `frozen` field.
+    pub frozen_exact_bytes: Vec<u8>,
     pub index_evidence: Option<IndexCodeIdentityEvidence>,
 }
 
-/// Either a FrozenWire-only artifact or a PortablePackageV2.
+impl PortablePackage {
+    /// SHA-256 of the retained nested FrozenWire bytes (audit / Gate B evidence).
+    pub fn frozen_exact_sha256(&self) -> [u8; 32] {
+        zombie_core::hashing::sha256(&self.frozen_exact_bytes)
+    }
+}
+
+/// Either a FrozenWire-only artifact or a PortablePackageV3 (live) / V2 (historical).
 #[derive(Debug, Clone)]
 pub enum PackageInput {
     Frozen(FrozenPackage),
@@ -213,57 +254,45 @@ impl PackageInput {
             .and_then(|s| s.as_str())
             .unwrap_or(FROZEN_SCHEMA_ID);
         if schema == PORTABLE_SCHEMA_ID {
-            // G v0.7.0: PortablePackageV2 requires exact version == 2 (structural).
+            // Exact version dispatch (R-6): 3 = live, 2 = historical, anything else malformed.
             let version = v.get("version").and_then(|x| x.as_u64()).ok_or_else(|| {
-                anyhow!("PortablePackageV2 missing required `version` (must be exactly 2)")
+                anyhow!("PortablePackage missing required integer `version` (must be exactly 3, or 2 for historical)")
             })?;
-            if version != SUPPORTED_PORTABLE_VERSION {
+            if version == PORTABLE_VERSION_V3 {
+                return Self::from_json_v3(&v);
+            }
+            if version != PORTABLE_VERSION_V2 {
                 bail!(
-                    "PortablePackageV2 `version` must be exactly {} (got {}) — structurally malformed",
-                    SUPPORTED_PORTABLE_VERSION,
+                    "PortablePackage `version` must be exactly {} (live) or {} (historical); got {} — structurally malformed",
+                    PORTABLE_VERSION_V3,
+                    PORTABLE_VERSION_V2,
                     version
                 );
             }
             let enc = ByteEncoding::parse_name(
-                v.get("encoding")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("hex"),
+                v.get("encoding").and_then(|e| e.as_str()).unwrap_or("hex"),
             )?;
             let frozen_val = v
                 .get("frozen")
                 .ok_or_else(|| anyhow!("PortablePackageV2 missing `frozen`"))?;
-            let frozen = if frozen_val.is_object() {
-                let mut nested = frozen_val.clone();
-                if nested.get("schema").is_none() {
-                    nested
-                        .as_object_mut()
-                        .unwrap()
-                        .insert("schema".into(), Value::String(FROZEN_SCHEMA_ID.into()));
-                }
-                if nested.get("encoding").is_none() {
-                    if let Some(enc_name) = v.get("encoding").cloned() {
-                        nested.as_object_mut().unwrap().insert("encoding".into(), enc_name);
-                    }
-                }
-                if nested.get("root_key_hex").is_none() {
-                    if let Some(rk) = v.get("root_key_hex").cloned() {
-                        nested.as_object_mut().unwrap().insert("root_key_hex".into(), rk);
-                    }
-                }
-                FrozenPackage::from_json(&nested.to_string())?
-            } else if let Some(s) = frozen_val.as_str() {
-                // Gate B forward shape (spec §14.1): nested `frozen` as exact canonical
-                // FrozenWire portable-JSON bytes (hex/base64). Must decode to UTF-8 JSON of
-                // the six-field frozen package — not a re-encoded approximation of fields.
+            // Ratified PortablePackageV2: nested FrozenWire as exact Gate A JSON
+            // bytes only. Object-form nesting / Value::to_string reconstruction is
+            // non-conforming (proves field equivalence, not byte identity).
+            let (frozen, frozen_exact_bytes) = if let Some(s) = frozen_val.as_str() {
                 let bytes = enc.decode("frozen", s)?;
                 let nested = std::str::from_utf8(&bytes).map_err(|e| {
                     anyhow!("PortablePackageV2 `frozen` bytes are not UTF-8 JSON: {}", e)
                 })?;
-                FrozenPackage::from_json(nested)?
+                let frozen = FrozenPackage::from_json(nested)?;
+                (frozen, bytes)
+            } else if frozen_val.is_object() {
+                bail!(
+                    "PortablePackageV2 `frozen` must be hex/base64 of exact FrozenWire JSON bytes \
+                     (object-form nesting is non-conforming — field equivalence is not byte identity)"
+                );
             } else {
                 bail!(
-                    "PortablePackageV2 `frozen` must be a JSON object of FrozenWire fields \
-                     or hex/base64 of exact FrozenWire JSON bytes"
+                    "PortablePackageV2 `frozen` must be hex/base64 of exact FrozenWire JSON bytes"
                 );
             };
 
@@ -291,17 +320,23 @@ impl PackageInput {
                          incomplete V2 is structurally malformed"
                     )
                 })?;
-            let certificate_bytes = enc
-                .decode("index_code_identity_evidence.certificate_bytes", cert)?;
+            let certificate_bytes =
+                enc.decode("index_code_identity_evidence.certificate_bytes", cert)?;
             if certificate_bytes.is_empty() {
                 bail!(
                     "PortablePackageV2 index_code_identity_evidence.certificate_bytes is empty — \
                      incomplete V2 is structurally malformed"
                 );
             }
-            let index_evidence = Some(IndexCodeIdentityEvidence { certificate_bytes });
+            let index_evidence = Some(IndexCodeIdentityEvidence {
+                certificate_bytes,
+                index_module_hash: None,
+            });
             Ok(PackageInput::Portable(PortablePackage {
+                version: PORTABLE_VERSION_V2,
+                trust_root_key_id: None,
                 frozen,
+                frozen_exact_bytes,
                 index_evidence,
             }))
         } else if schema == FROZEN_SCHEMA_ID || v.get("receipt_body").is_some() {
@@ -311,6 +346,104 @@ impl PackageInput {
         }
     }
 
+    /// PortablePackageV3 (R-6), FAIL CLOSED: exact key set at both levels, `version == 3`,
+    /// `trust_root_key_id` a known selector, `frozen` = exact FrozenWire bytes, evidence complete
+    /// (non-empty certificate, 32-byte `index_module_hash`). Nothing is defaulted.
+    fn from_json_v3(v: &Value) -> Result<Self> {
+        let obj = v
+            .as_object()
+            .ok_or_else(|| anyhow!("PortablePackageV3 must be a JSON object"))?;
+        for key in obj.keys() {
+            if !V3_KEYS.contains(&key.as_str()) {
+                bail!(
+                    "PortablePackageV3 has unknown key `{}` — structurally malformed (fail closed)",
+                    key
+                );
+            }
+        }
+        for key in V3_KEYS {
+            if !obj.contains_key(key) {
+                bail!(
+                    "PortablePackageV3 missing required key `{}` — structurally malformed",
+                    key
+                );
+            }
+        }
+        let enc = ByteEncoding::parse_name(
+            obj.get("encoding")
+                .and_then(|e| e.as_str())
+                .ok_or_else(|| anyhow!("PortablePackageV3 `encoding` must be a string"))?,
+        )?;
+        let trust_root_key_id = obj
+            .get("trust_root_key_id")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| anyhow!("PortablePackageV3 `trust_root_key_id` must be a string"))?
+            .to_string();
+        if trust_root_key_id != TRUST_ROOT_MAINNET && trust_root_key_id != TRUST_ROOT_NON_PRODUCTION
+        {
+            bail!(
+                "PortablePackageV3 `trust_root_key_id` '{}' is not a known trust-root selector \
+                 (known: '{}', '{}') — fail closed",
+                trust_root_key_id,
+                TRUST_ROOT_MAINNET,
+                TRUST_ROOT_NON_PRODUCTION
+            );
+        }
+        let frozen_hex = obj.get("frozen").and_then(|f| f.as_str()).ok_or_else(|| {
+            anyhow!("PortablePackageV3 `frozen` must be hex/base64 of exact FrozenWire JSON bytes")
+        })?;
+        let frozen_exact_bytes = enc.decode("frozen", frozen_hex)?;
+        let nested = std::str::from_utf8(&frozen_exact_bytes)
+            .map_err(|e| anyhow!("PortablePackageV3 `frozen` bytes are not UTF-8 JSON: {}", e))?;
+        let frozen = FrozenPackage::from_json(nested)?;
+
+        let ev = obj
+            .get("index_code_identity_evidence")
+            .and_then(|e| e.as_object())
+            .ok_or_else(|| {
+                anyhow!("PortablePackageV3 `index_code_identity_evidence` must be an object")
+            })?;
+        for key in ev.keys() {
+            if !V3_EVIDENCE_KEYS.contains(&key.as_str()) {
+                bail!("PortablePackageV3 index_code_identity_evidence has unknown key `{}` — fail closed", key);
+            }
+        }
+        let certificate_bytes = enc.decode(
+            "index_code_identity_evidence.certificate_bytes",
+            ev.get("certificate_bytes")
+                .and_then(|c| c.as_str())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "PortablePackageV3 index_code_identity_evidence.certificate_bytes missing"
+                    )
+                })?,
+        )?;
+        if certificate_bytes.is_empty() {
+            bail!("PortablePackageV3 index_code_identity_evidence.certificate_bytes is empty — malformed");
+        }
+        let index_module_hash = decode_array32(
+            enc,
+            "index_code_identity_evidence.index_module_hash",
+            ev.get("index_module_hash")
+                .and_then(|h| h.as_str())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "PortablePackageV3 index_code_identity_evidence.index_module_hash missing"
+                    )
+                })?,
+        )?;
+        Ok(PackageInput::Portable(PortablePackage {
+            version: PORTABLE_VERSION_V3,
+            trust_root_key_id: Some(trust_root_key_id),
+            frozen,
+            frozen_exact_bytes,
+            index_evidence: Some(IndexCodeIdentityEvidence {
+                certificate_bytes,
+                index_module_hash: Some(index_module_hash),
+            }),
+        }))
+    }
+
     pub fn frozen(&self) -> &FrozenPackage {
         match self {
             PackageInput::Frozen(f) => f,
@@ -318,12 +451,42 @@ impl PackageInput {
         }
     }
 
-    pub fn index_evidence_bytes(&self) -> Option<&[u8]> {
+    /// Outer package version: `Some(3|2)` for portable packages, `None` for FrozenWire-only.
+    pub fn portable_version(&self) -> Option<u64> {
         match self {
             PackageInput::Frozen(_) => None,
-            PackageInput::Portable(p) => {
-                p.index_evidence.as_ref().map(|e| e.certificate_bytes.as_slice())
-            }
+            PackageInput::Portable(p) => Some(p.version),
+        }
+    }
+
+    pub fn trust_root_key_id(&self) -> Option<&str> {
+        match self {
+            PackageInput::Frozen(_) => None,
+            PackageInput::Portable(p) => p.trust_root_key_id.as_deref(),
+        }
+    }
+
+    pub fn index_evidence(&self) -> Option<&IndexCodeIdentityEvidence> {
+        match self {
+            PackageInput::Frozen(_) => None,
+            PackageInput::Portable(p) => p.index_evidence.as_ref(),
+        }
+    }
+
+    /// SHA-256 of the retained nested FrozenWire bytes (Gate B evidence); None for FrozenWire-only.
+    pub fn frozen_exact_sha256(&self) -> Option<[u8; 32]> {
+        match self {
+            PackageInput::Frozen(_) => None,
+            PackageInput::Portable(p) => Some(p.frozen_exact_sha256()),
+        }
+    }
+
+    /// Retained nested FrozenWire JSON bytes for a portable package; None for FrozenWire-only.
+    #[cfg(test)]
+    pub fn frozen_exact_bytes(&self) -> Option<&[u8]> {
+        match self {
+            PackageInput::Frozen(_) => None,
+            PackageInput::Portable(p) => Some(p.frozen_exact_bytes.as_slice()),
         }
     }
 }
@@ -335,6 +498,8 @@ struct RevealWire {
     #[serde(default)]
     encoding: Option<String>,
     salt: String,
+    #[serde(default)]
+    record_salt: Option<String>,
     targets: Vec<String>,
 }
 
@@ -346,28 +511,50 @@ impl RevealPackage {
     }
 
     pub fn from_json(raw: &str) -> Result<Self> {
-        let wire: RevealWire =
-            serde_json::from_str(raw).context("reveal package is not valid JSON of the expected shape")?;
+        let wire: RevealWire = serde_json::from_str(raw)
+            .context("reveal package is not valid JSON of the expected shape")?;
         if let Some(schema) = &wire.schema {
             if schema != REVEAL_SCHEMA_ID {
-                bail!("unexpected reveal `schema` '{}' (expected '{}')", schema, REVEAL_SCHEMA_ID);
+                bail!(
+                    "unexpected reveal `schema` '{}' (expected '{}')",
+                    schema,
+                    REVEAL_SCHEMA_ID
+                );
             }
         }
-        if let Some(v) = wire.version {
-            if v > SUPPORTED_VERSION {
-                bail!("reveal package `version` {} is newer than supported {}", v, SUPPORTED_VERSION);
-            }
+        let version = wire.version.unwrap_or(1);
+        if version != 1 && version != 2 {
+            bail!(
+                "reveal package `version` must be 1 (historical) or 2; got {}",
+                version
+            );
         }
         let enc = ByteEncoding::parse_name(wire.encoding.as_deref().unwrap_or("hex"))?;
         let salt = decode_array32(enc, "salt", &wire.salt)?;
+        let record_salt = match (&wire.record_salt, version) {
+            (Some(rs), 2) => Some(decode_array32(enc, "record_salt", rs)?),
+            (None, 2) => bail!("reveal package version 2 must carry `record_salt`"),
+            (Some(_), _) => bail!("reveal package version 1 must not carry `record_salt`"),
+            (None, _) => None,
+        };
 
         let mut targets = Vec::with_capacity(wire.targets.len());
         for (i, t) in wire.targets.iter().enumerate() {
-            let p = candid::Principal::from_text(t.trim())
-                .map_err(|e| anyhow!("reveal targets[{}] '{}' is not a valid principal: {}", i, t, e))?;
+            let p = candid::Principal::from_text(t.trim()).map_err(|e| {
+                anyhow!(
+                    "reveal targets[{}] '{}' is not a valid principal: {}",
+                    i,
+                    t,
+                    e
+                )
+            })?;
             targets.push(p);
         }
-        Ok(Self { salt, targets })
+        Ok(Self {
+            salt,
+            record_salt,
+            targets,
+        })
     }
 }
 
@@ -422,8 +609,38 @@ mod tests {
         assert!(err.contains("must be 32 bytes"), "{err}");
     }
 
+    /// Helper: nest exact FrozenWire JSON bytes as hex inside PortablePackageV2.
+    fn portable_v2_json(frozen_json: &str, evidence_hex: &str) -> String {
+        let frozen_hex = hex::encode(frozen_json.as_bytes());
+        format!(
+            r#"{{
+              "schema":"{PORTABLE_SCHEMA_ID}",
+              "version":2,
+              "encoding":"hex",
+              "frozen":"{frozen_hex}",
+              "index_code_identity_evidence":{{"certificate_bytes":"{evidence_hex}"}}
+            }}"#
+        )
+    }
+
     #[test]
-    fn portable_v2_nests_frozen_and_optional_index_evidence() {
+    fn portable_v2_nests_frozen_bytes_and_index_evidence() {
+        let z = hex::encode([0u8; 32]);
+        let frozen_json = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aabb","certificate_time":9}}"#
+        );
+        let pkg = PackageInput::from_json(&portable_v2_json(&frozen_json, "deadbeef")).unwrap();
+        assert_eq!(pkg.frozen().certificate_time, 9);
+        assert_eq!(
+            pkg.index_evidence().map(|e| e.certificate_bytes.clone()),
+            Some(vec![0xde, 0xad, 0xbe, 0xef])
+        );
+    }
+
+    #[test]
+    fn portable_v2_rejects_object_form_frozen() {
         let z = hex::encode([0u8; 32]);
         let j = format!(
             r#"{{
@@ -437,26 +654,50 @@ mod tests {
               "index_code_identity_evidence":{{"certificate_bytes":"deadbeef"}}
             }}"#
         );
-        let pkg = PackageInput::from_json(&j).unwrap();
-        assert_eq!(pkg.frozen().certificate_time, 9);
-        assert_eq!(pkg.index_evidence_bytes(), Some([0xde, 0xad, 0xbe, 0xef].as_slice()));
+        let err = PackageInput::from_json(&j).unwrap_err().to_string();
+        assert!(
+            err.contains("exact FrozenWire JSON bytes") || err.contains("object-form"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn portable_v2_rejects_non_string_frozen() {
+        let j = format!(
+            r#"{{
+              "schema":"{PORTABLE_SCHEMA_ID}",
+              "version":2,
+              "encoding":"hex",
+              "frozen":[1,2,3],
+              "index_code_identity_evidence":{{"certificate_bytes":"deadbeef"}}
+            }}"#
+        );
+        let err = PackageInput::from_json(&j).unwrap_err().to_string();
+        assert!(
+            err.contains("exact FrozenWire JSON bytes") || err.contains("hex or base64"),
+            "{err}"
+        );
     }
 
     #[test]
     fn portable_v2_requires_complete_index_evidence() {
         let z = hex::encode([0u8; 32]);
+        let frozen_json = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
+        );
+        let frozen_hex = hex::encode(frozen_json.as_bytes());
         let j = format!(
             r#"{{
               "schema":"{PORTABLE_SCHEMA_ID}","version":2,"encoding":"hex",
-              "frozen":{{
-                "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
-                "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1
-              }}
+              "frozen":"{frozen_hex}"
             }}"#
         );
         let err = PackageInput::from_json(&j).unwrap_err().to_string();
         assert!(
-            err.contains("structurally malformed") || err.contains("missing `index_code_identity_evidence`"),
+            err.contains("structurally malformed")
+                || err.contains("missing `index_code_identity_evidence`"),
             "{err}"
         );
     }
@@ -464,6 +705,12 @@ mod tests {
     #[test]
     fn portable_v2_null_or_empty_evidence_is_malformed_not_unavailable() {
         let z = hex::encode([0u8; 32]);
+        let frozen_json = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
+        );
+        let frozen_hex = hex::encode(frozen_json.as_bytes());
         for evidence_json in [
             r#","index_code_identity_evidence":null"#,
             r#","index_code_identity_evidence":{"certificate_bytes":""}"#,
@@ -471,10 +718,7 @@ mod tests {
             let j = format!(
                 r#"{{
                   "schema":"{PORTABLE_SCHEMA_ID}","version":2,"encoding":"hex",
-                  "frozen":{{
-                    "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
-                    "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1
-                  }}
+                  "frozen":"{frozen_hex}"
                   {evidence_json}
                 }}"#
             );
@@ -494,14 +738,17 @@ mod tests {
     #[test]
     fn portable_v2_rejects_non_exact_version() {
         let z = hex::encode([0u8; 32]);
+        let frozen_json = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
+        );
+        let frozen_hex = hex::encode(frozen_json.as_bytes());
         for version in [1u64, 3, 0] {
             let j = format!(
                 r#"{{
                   "schema":"{PORTABLE_SCHEMA_ID}","version":{version},"encoding":"hex",
-                  "frozen":{{
-                    "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
-                    "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1
-                  }},
+                  "frozen":"{frozen_hex}",
                   "index_code_identity_evidence":{{"certificate_bytes":"dead"}}
                 }}"#
             );
@@ -514,10 +761,7 @@ mod tests {
         let missing = format!(
             r#"{{
               "schema":"{PORTABLE_SCHEMA_ID}","encoding":"hex",
-              "frozen":{{
-                "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
-                "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1
-              }},
+              "frozen":"{frozen_hex}",
               "index_code_identity_evidence":{{"certificate_bytes":"dead"}}
             }}"#
         );
@@ -546,12 +790,30 @@ mod tests {
         let pkg = PackageInput::from_json(&j).unwrap();
         assert_eq!(pkg.frozen().certificate_time, 42);
         assert_eq!(pkg.frozen().receipt_body, vec![0xab, 0xcd]);
-        assert_eq!(pkg.index_evidence_bytes(), Some([0xde, 0xad].as_slice()));
+        assert_eq!(
+            pkg.index_evidence().map(|e| e.certificate_bytes.clone()),
+            Some(vec![0xde, 0xad])
+        );
+
+        // Retained nested vector must equal the decoded Gate A JSON bytes exactly.
+        assert_eq!(
+            pkg.frozen_exact_bytes().unwrap(),
+            frozen_json.as_bytes(),
+            "PortablePackage must preserve exact nested FrozenWire bytes after parse"
+        );
+        if let PackageInput::Portable(p) = &pkg {
+            use zombie_core::hashing::sha256;
+            assert_eq!(p.frozen_exact_sha256(), sha256(frozen_json.as_bytes()));
+        }
 
         // Byte-equality Gate B seed: re-hex of the same nested JSON must round-trip identically.
         let again = PackageInput::from_json(&j).unwrap();
-        assert_eq!(again.frozen().certificate_bytes, pkg.frozen().certificate_bytes);
+        assert_eq!(
+            again.frozen().certificate_bytes,
+            pkg.frozen().certificate_bytes
+        );
         assert_eq!(again.frozen().receipt_body, pkg.frozen().receipt_body);
+        assert_eq!(again.frozen_exact_bytes(), pkg.frozen_exact_bytes());
     }
 
     /// Gate B: nested FrozenWire must be exact bytes — whitespace-equivalent JSON
@@ -581,8 +843,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(standalone.receipt_body, nested.frozen().receipt_body);
-        assert_eq!(standalone.certificate_bytes, nested.frozen().certificate_bytes);
-        assert_eq!(standalone.certificate_time, nested.frozen().certificate_time);
+        assert_eq!(
+            standalone.certificate_bytes,
+            nested.frozen().certificate_bytes
+        );
+        assert_eq!(
+            standalone.certificate_time,
+            nested.frozen().certificate_time
+        );
+        assert_eq!(
+            nested.frozen_exact_bytes().unwrap(),
+            frozen_bytes,
+            "parsed package must retain the original nested byte vector"
+        );
 
         // Trailing space before closing brace → identical fields, different SHA-256.
         let reencoded = format!(
@@ -602,12 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn frozen_wire_only_still_evaluates_unavailable_not_applicable() {
-        use crate::openchatzd::index_attestation::{
-            evaluate, INDEX_ATTESTATION_UNAVAILABLE, TIMING_NOT_APPLICABLE,
-        };
-        use candid::Principal;
-
+    fn frozen_wire_only_has_no_retained_nested_bytes() {
         let z = hex::encode([0u8; 32]);
         let j = format!(
             r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
@@ -616,29 +884,172 @@ mod tests {
         );
         let pkg = PackageInput::from_json(&j).unwrap();
         assert!(matches!(pkg, PackageInput::Frozen(_)));
-        assert!(pkg.index_evidence_bytes().is_none());
-        let r = evaluate(
-            pkg.index_evidence_bytes(),
-            Principal::from_slice(&[3u8; 10]),
-            &[0u8; 32],
-            pkg.frozen().certificate_time,
-            0,
-            &[],
+        assert!(pkg.frozen_exact_bytes().is_none());
+    }
+
+    #[test]
+    fn frozen_wire_only_exposes_no_evidence_and_no_selector() {
+        let z = hex::encode([0u8; 32]);
+        let j = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
         );
-        assert_eq!(r.outcome, INDEX_ATTESTATION_UNAVAILABLE);
-        assert_eq!(r.timing, TIMING_NOT_APPLICABLE);
+        let pkg = PackageInput::from_json(&j).unwrap();
+        assert!(matches!(pkg, PackageInput::Frozen(_)));
+        assert!(pkg.index_evidence().is_none());
+        assert_eq!(pkg.portable_version(), None);
+        assert_eq!(pkg.trust_root_key_id(), None);
+    }
+
+    fn frozen_json() -> String {
+        let z = hex::encode([0u8; 32]);
+        format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex","receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}","witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
+        )
+    }
+
+    fn v3_json(
+        extra_top: &str,
+        extra_ev: &str,
+        version: u64,
+        selector: &str,
+        hash_hex: &str,
+    ) -> String {
+        format!(
+            r#"{{"schema":"{PORTABLE_SCHEMA_ID}","version":{version},"encoding":"hex","trust_root_key_id":"{selector}","frozen":"{frozen}","index_code_identity_evidence":{{"certificate_bytes":"dead","index_module_hash":"{hash_hex}"{extra_ev}}}{extra_top}}}"#,
+            frozen = hex::encode(frozen_json().as_bytes()),
+        )
+    }
+
+    /// R-6 / G rule 3: PortablePackageV3 parses exactly; every deviation is malformed (fail closed).
+    #[test]
+    fn portable_v3_exact_and_fail_closed() {
+        let h = "1d".repeat(32);
+        let ok = PackageInput::from_json(&v3_json("", "", 3, TRUST_ROOT_MAINNET, &h)).unwrap();
+        assert_eq!(ok.portable_version(), Some(3));
+        assert_eq!(ok.trust_root_key_id(), Some(TRUST_ROOT_MAINNET));
+        let ev = ok.index_evidence().unwrap();
+        assert_eq!(ev.certificate_bytes, vec![0xde, 0xad]);
+        assert_eq!(ev.index_module_hash, Some([0x1d; 32]));
+        assert_eq!(ok.frozen_exact_bytes(), Some(frozen_json().as_bytes()));
+        assert!(
+            PackageInput::from_json(&v3_json("", "", 3, TRUST_ROOT_NON_PRODUCTION, &h)).is_ok()
+        );
+
+        let cases = [
+            (
+                v3_json(r#","extra":1"#, "", 3, TRUST_ROOT_MAINNET, &h),
+                "unknown key",
+            ),
+            (
+                v3_json("", r#","note":"x""#, 3, TRUST_ROOT_MAINNET, &h),
+                "unknown key",
+            ),
+            (v3_json("", "", 4, TRUST_ROOT_MAINNET, &h), "malformed"),
+            (
+                v3_json("", "", 3, "prod", &h),
+                "not a known trust-root selector",
+            ),
+            (
+                v3_json("", "", 3, "", &h),
+                "not a known trust-root selector",
+            ),
+            (
+                v3_json("", "", 3, TRUST_ROOT_MAINNET, "1d1d"),
+                "must be 32 bytes",
+            ),
+            (
+                v3_json("", "", 3, TRUST_ROOT_MAINNET, ""),
+                "must be 32 bytes",
+            ),
+        ];
+        for (json, needle) in cases {
+            let err = PackageInput::from_json(&json).unwrap_err().to_string();
+            assert!(err.contains(needle), "expected `{needle}` in: {err}");
+        }
+        // missing required keys
+        for key in [
+            "trust_root_key_id",
+            "index_code_identity_evidence",
+            "frozen",
+            "encoding",
+        ] {
+            let mut v: serde_json::Value =
+                serde_json::from_str(&v3_json("", "", 3, TRUST_ROOT_MAINNET, &h)).unwrap();
+            v.as_object_mut().unwrap().remove(key);
+            let err = PackageInput::from_json(&v.to_string())
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("missing required key"), "{key}: {err}");
+        }
+        // V3 with the V2 evidence shape (no index_module_hash) is malformed, not "V2".
+        let mut v: serde_json::Value =
+            serde_json::from_str(&v3_json("", "", 3, TRUST_ROOT_MAINNET, &h)).unwrap();
+        v["index_code_identity_evidence"]
+            .as_object_mut()
+            .unwrap()
+            .remove("index_module_hash");
+        assert!(PackageInput::from_json(&v.to_string())
+            .unwrap_err()
+            .to_string()
+            .contains("index_module_hash missing"));
+    }
+
+    /// Historical V2 still decodes (no selector, no extracted hash) and is never confused with V3.
+    #[test]
+    fn portable_v2_historical_decodes() {
+        let json = format!(
+            r#"{{"schema":"{PORTABLE_SCHEMA_ID}","version":2,"encoding":"hex","frozen":"{frozen}","index_code_identity_evidence":{{"certificate_bytes":"dead"}}}}"#,
+            frozen = hex::encode(frozen_json().as_bytes()),
+        );
+        let pkg = PackageInput::from_json(&json).unwrap();
+        assert_eq!(pkg.portable_version(), Some(2));
+        assert_eq!(pkg.trust_root_key_id(), None);
+        assert_eq!(pkg.index_evidence().unwrap().index_module_hash, None);
+    }
+
+    /// RevealWire v2 carries record_salt; v1 must not; v2 without it is malformed.
+    #[test]
+    fn reveal_wire_versions() {
+        let salt = hex::encode([4u8; 32]);
+        let rs = hex::encode([0xC3u8; 32]);
+        let v2 = format!(
+            r#"{{"schema":"{REVEAL_SCHEMA_ID}","version":2,"encoding":"hex","salt":"{salt}","record_salt":"{rs}","targets":[]}}"#
+        );
+        let r = RevealPackage::from_json(&v2).unwrap();
+        assert_eq!(r.record_salt, Some([0xC3; 32]));
+        let v1 = format!(
+            r#"{{"schema":"{REVEAL_SCHEMA_ID}","version":1,"encoding":"hex","salt":"{salt}","targets":[]}}"#
+        );
+        assert_eq!(RevealPackage::from_json(&v1).unwrap().record_salt, None);
+        let v2_missing = format!(
+            r#"{{"schema":"{REVEAL_SCHEMA_ID}","version":2,"encoding":"hex","salt":"{salt}","targets":[]}}"#
+        );
+        assert!(RevealPackage::from_json(&v2_missing).is_err());
+        let v1_extra = format!(
+            r#"{{"schema":"{REVEAL_SCHEMA_ID}","version":1,"encoding":"hex","salt":"{salt}","record_salt":"{rs}","targets":[]}}"#
+        );
+        assert!(RevealPackage::from_json(&v1_extra).is_err());
+        let v3 = format!(
+            r#"{{"schema":"{REVEAL_SCHEMA_ID}","version":3,"encoding":"hex","salt":"{salt}","record_salt":"{rs}","targets":[]}}"#
+        );
+        assert!(RevealPackage::from_json(&v3).is_err());
     }
 
     #[test]
     fn portable_v2_rejects_evidence_object_missing_certificate_bytes_key() {
         let z = hex::encode([0u8; 32]);
+        let frozen_json = format!(
+            r#"{{"schema":"{FROZEN_SCHEMA_ID}","version":1,"encoding":"hex",
+            "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
+            "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1}}"#
+        );
+        let frozen_hex = hex::encode(frozen_json.as_bytes());
         let j = format!(
             r#"{{
               "schema":"{PORTABLE_SCHEMA_ID}","version":2,"encoding":"hex",
-              "frozen":{{
-                "receipt_body":"00","receipt_hash":"{z}","tree_root":"{z}",
-                "witness_bytes":"00","certificate_bytes":"aa","certificate_time":1
-              }},
+              "frozen":"{frozen_hex}",
               "index_code_identity_evidence":{{"other":"00"}}
             }}"#
         );

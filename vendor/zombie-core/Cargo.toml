@@ -32,6 +32,10 @@ name = "zombie_core"
 path = "src/lib.rs"
 
 [[test]]
+name = "v51_corpus"
+path = "tests/v51_corpus.rs"
+
+[[test]]
 name = "v5_corpus"
 path = "tests/v5_corpus.rs"
 

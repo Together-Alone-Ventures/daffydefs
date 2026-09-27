@@ -24,13 +24,13 @@
 use crate::certified::publish_deletion_certified;
 use crate::nonce::increment_deletion_seq;
 use crate::state::compute_state_hash;
-use crate::storage::{with_storage, with_storage_mut, Hash32, OptionalTimestamp, ReceiptBytes};
+use crate::storage::{with_storage_mut, Hash32, OptionalTimestamp, ReceiptBytes};
 use crate::trait_def::MKTdDataSource;
 use crate::MktdConfig;
 use candid::Principal;
 use zombie_core::hashing::{hash_with_tag, TAG_TOMBSTONE_HASH};
 use zombie_core::receipt::{
-    compute_receipt_id, deletion_event_hash_v5, DeletionReceiptV5, ProtocolVersion,
+    compute_receipt_id, deletion_event_hash_v51, DeletionReceiptV51, ProtocolVersion,
 };
 use zombie_core::tombstone::tombstone_constant;
 
@@ -128,23 +128,19 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     // (f) Compute tombstone_hash
     let tombstone_hash = compute_tombstone_hash(&canister_id, timestamp, deletion_seq);
 
-    // (g) Read module_hash from storage
-    let module_hash = with_storage(|s| s.meta.get().module_hash);
-
     // (g2) Compute receipt_id BEFORE the event hash — the v5 event preimage
     //      binds it (ruling A-1(a), 12 Sep 2026). Persisting the pending
     //      receipt_id still happens at (k), once the lock is held.
     let receipt_id = compute_receipt_id(&canister_id, &record_id, deletion_seq);
 
     // (h) Compute deletion_event_hash via the single normative implementation
-    //     in zombie-core (MKTD02_EVENT_V2, six parts). The engine builds no
+    //     in zombie-core (MKTD02_EVENT_V3, five parts). The engine builds no
     //     event-hash preimage of its own. manifest_hash is not in the preimage.
-    let deletion_event_hash = deletion_event_hash_v5(
+    let deletion_event_hash = deletion_event_hash_v51(
         &pre_state_hash,
         &post_state_hash,
         &receipt_id,
         timestamp,
-        &module_hash,
         deletion_seq,
     );
 
@@ -172,9 +168,11 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
     //     unchanged in position and behaviour.
     crate::storage::set_pending_receipt_id(receipt_id);
 
-    // (l) Construct receipt (mktd02-v5: no certified_commitment field)
-    let receipt = DeletionReceiptV5 {
-        protocol_version: ProtocolVersion::V5.into(),
+    // (l) Construct the v5.1 pending receipt. Finalisation-derived evidence is
+    // structurally absent; the MetaCell deployer module hash is operations
+    // metadata and never enters this receipt.
+    let receipt = DeletionReceiptV51 {
+        protocol_version: ProtocolVersion::V51.into(),
         receipt_id,
         canister_id,
         record_id,
@@ -182,11 +180,11 @@ pub fn execute_deletion_with_record_id<A: MKTdDataSource>(
         post_state_hash,
         tombstone_hash,
         deletion_event_hash,
-        module_hash,
+        module_hash: None,
         timestamp,
         deletion_seq,
         bls_certificate: None, // Populated during finalization (Phase C)
-        trust_root_key_id: String::new(), // Populated during finalization (Phase C)
+        trust_root_key_id: None, // Populated during finalization (Phase C)
         module_hash_certificate: None, // Populated during finalization (Phase C)
     };
 
@@ -228,7 +226,7 @@ pub(crate) fn compute_tombstone_hash(
 /// receipt whose `deletion_event_hash` is all-zero (`invalid-event-hash:zero`),
 /// so the engine can never store or emit one; the named error is surfaced in
 /// the trap message.
-fn encode_receipt(receipt: &DeletionReceiptV5) -> Result<Vec<u8>, String> {
+fn encode_receipt(receipt: &DeletionReceiptV51) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     ciborium::into_writer(receipt, &mut buf).map_err(|e| e.to_string())?;
     Ok(buf)
@@ -270,10 +268,10 @@ mod tests {
     #[test]
     fn t9_engine_refuses_zero_deletion_event_hash_by_name() {
         use zombie_core::hashing::ZERO_HASH;
-        use zombie_core::receipt::{DeletionReceiptV5, ProtocolVersion};
+        use zombie_core::receipt::{DeletionReceiptV51, ProtocolVersion};
 
-        let zero = DeletionReceiptV5 {
-            protocol_version: ProtocolVersion::V5.into(),
+        let zero = DeletionReceiptV51 {
+            protocol_version: ProtocolVersion::V51.into(),
             receipt_id: [1u8; 32],
             canister_id: Principal::from_slice(&[0xCA, 0xFE, 0x01]),
             record_id: b"subject".to_vec(),
@@ -281,11 +279,11 @@ mod tests {
             post_state_hash: [3u8; 32],
             tombstone_hash: [4u8; 32],
             deletion_event_hash: ZERO_HASH,
-            module_hash: [6u8; 32],
+            module_hash: None,
             timestamp: 1,
             deletion_seq: 1,
             bls_certificate: None,
-            trust_root_key_id: String::new(),
+            trust_root_key_id: None,
             module_hash_certificate: None,
         };
         let err = super::encode_receipt(&zero).unwrap_err();
@@ -295,7 +293,7 @@ mod tests {
         );
 
         // Control: the same receipt with a non-zero event hash encodes.
-        let ok = DeletionReceiptV5 {
+        let ok = DeletionReceiptV51 {
             deletion_event_hash: [5u8; 32],
             ..zero
         };

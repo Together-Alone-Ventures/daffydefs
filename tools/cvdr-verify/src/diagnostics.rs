@@ -27,6 +27,10 @@ pub async fn run(agent: &Agent, receipt: &AnyDeletionReceipt) -> Vec<DiagnosticF
             r.deletion_event_hash,
             "deletion_event_hash",
         ),
+        AnyDeletionReceipt::V51(r) => (
+            r.canister_id, r.module_hash.unwrap_or([0; 32]), r.post_state_hash,
+            r.deletion_event_hash, "deletion_event_hash",
+        ),
         AnyDeletionReceipt::V4(r) => (
             r.canister_id,
             r.module_hash,

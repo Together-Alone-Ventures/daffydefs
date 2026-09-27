@@ -83,6 +83,9 @@ pub const TAG_EVENT: DomainTag = DomainTag(b"MKTD02_EVENT_V1");
 /// two can never collide over identical operands.
 pub const TAG_EVENT_V2: DomainTag = DomainTag(b"MKTD02_EVENT_V2");
 
+/// Domain tag for the corrected `mktd02-v5.1` deletion-event construction.
+pub const TAG_EVENT_V3: DomainTag = DomainTag(b"MKTD02_EVENT_V3");
+
 /// Domain tag for receipt_id derivation.
 pub const TAG_RECEIPT: DomainTag = DomainTag(b"MKTD02_RECEIPT_V1");
 

@@ -36,7 +36,8 @@
 //! historical verification after any future NNS key rotation.
 
 use crate::hashing::{
-    hash_with_tag, TAG_EVENT, TAG_EVENT_V2, TAG_GENESIS, TAG_RECEIPT, TAG_RECEIPT_V3, ZERO_HASH,
+    hash_with_tag, TAG_EVENT, TAG_EVENT_V2, TAG_EVENT_V3, TAG_GENESIS, TAG_RECEIPT,
+    TAG_RECEIPT_V3, ZERO_HASH,
 };
 use candid::{CandidType, Principal};
 use serde::ser::{Error as _, Serializer};
@@ -321,6 +322,8 @@ pub enum ProtocolVersion {
     /// deletion-event hash binds `receipt_id`; the receipt-id preimage is
     /// unchanged.
     V5,
+    /// Corrected active line: EVENT_V3 excludes module_hash.
+    V51,
 }
 
 impl ProtocolVersion {
@@ -330,6 +333,7 @@ impl ProtocolVersion {
             ProtocolVersion::V3 => "mktd02-v3",
             ProtocolVersion::V4 => "mktd02-v4",
             ProtocolVersion::V5 => "mktd02-v5",
+            ProtocolVersion::V51 => "mktd02-v5.1",
         }
     }
 }
@@ -344,7 +348,9 @@ impl ProtocolVersion {
 /// Returns `None` for any unrecognised string — callers MUST treat `None` as a
 /// hard error and never fall back to a legacy wire shape.
 fn classify_protocol(protocol_version: &str) -> Option<ProtocolVersion> {
-    if protocol_version == ProtocolVersion::V5.as_str() {
+    if protocol_version == ProtocolVersion::V51.as_str() {
+        Some(ProtocolVersion::V51)
+    } else if protocol_version == ProtocolVersion::V5.as_str() {
         Some(ProtocolVersion::V5)
     } else if protocol_version.starts_with("mktd02-v4") {
         Some(ProtocolVersion::V4)
@@ -534,7 +540,7 @@ impl DeletionReceiptV4 {
             }
             // mktd02-v5 is not a protocol of this (certified_commitment-bearing)
             // type; classified exactly as an unrecognised string was pre-v5.
-            Some(ProtocolVersion::V5) | None => ReceiptState::InvalidIncompleteFinalization,
+            Some(ProtocolVersion::V5) | Some(ProtocolVersion::V51) | None => ReceiptState::InvalidIncompleteFinalization,
         }
     }
 }
@@ -656,6 +662,29 @@ pub fn deletion_event_hash_v5(
             receipt_id,
             &timestamp.to_be_bytes(),
             module_hash,
+            &deletion_seq.to_be_bytes(),
+        ],
+    )
+}
+
+/// Compute the corrected `mktd02-v5.1` EVENT_V3 deletion-event hash.
+///
+/// The five operands are specified by the 25 Sep 2026 amendment §4; notably,
+/// `module_hash` is not an operand.
+pub fn deletion_event_hash_v51(
+    pre_state_hash: &[u8; 32],
+    post_state_hash: &[u8; 32],
+    receipt_id: &[u8; 32],
+    timestamp: u64,
+    deletion_seq: u64,
+) -> [u8; 32] {
+    hash_with_tag(
+        TAG_EVENT_V3,
+        &[
+            pre_state_hash,
+            post_state_hash,
+            receipt_id,
+            &timestamp.to_be_bytes(),
             &deletion_seq.to_be_bytes(),
         ],
     )
@@ -1002,7 +1031,7 @@ impl TryFrom<DeletionReceiptRawWire> for DeletionReceiptV4 {
                 })
             }
             // mktd02-v5 is refused exactly as an unrecognised string was pre-v5.
-            Some(ProtocolVersion::V5) | None => Err(format!(
+            Some(ProtocolVersion::V5) | Some(ProtocolVersion::V51) | None => Err(format!(
                 "DeletionReceipt: unrecognised protocol_version {:?}; \
                  refusing to decode (no silent legacy fallback)",
                 w.protocol_version
@@ -1073,7 +1102,7 @@ impl Serialize for DeletionReceiptV4 {
             }
             .serialize(serializer),
             // mktd02-v5 is refused exactly as an unrecognised string was pre-v5.
-            Some(ProtocolVersion::V5) | None => Err(S::Error::custom(format!(
+            Some(ProtocolVersion::V5) | Some(ProtocolVersion::V51) | None => Err(S::Error::custom(format!(
                 "DeletionReceipt: unrecognised protocol_version {:?}; \
                  refusing to serialise (no silent legacy fallback)",
                 self.protocol_version
@@ -1176,6 +1205,190 @@ pub fn verify_v1_event_hash(receipt: &DeletionReceiptV5) -> Result<(), &'static 
         Ok(())
     } else {
         Err(ERR_V1_EVENT_HASH_MISMATCH)
+    }
+}
+
+/// V1 for the corrected v5.1 line.  This is deliberately separate from the
+/// frozen v5 function above: the two exact wire labels select different event
+/// constructions.
+pub fn verify_v1_v51(receipt: &DeletionReceiptV51) -> Result<(), &'static str> {
+    let receipt_id = compute_receipt_id(
+        &receipt.canister_id,
+        &receipt.record_id,
+        receipt.deletion_seq,
+    );
+    if receipt_id != receipt.receipt_id {
+        return Err(ERR_V1_RECEIPT_ID_MISMATCH);
+    }
+    let event = deletion_event_hash_v51(
+        &receipt.pre_state_hash,
+        &receipt.post_state_hash,
+        &receipt.receipt_id,
+        receipt.timestamp,
+        receipt.deletion_seq,
+    );
+    if event == receipt.deletion_event_hash {
+        Ok(())
+    } else {
+        Err(ERR_V1_EVENT_HASH_MISMATCH)
+    }
+}
+
+fn deserialize_nonnull_option_vec<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<Vec<u8>>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("a non-null byte string") }
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 finalisation field must be omitted, not null")) }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 finalisation field must be omitted, not null")) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
+            let value = serde_bytes_v5::deserialize_vec(d)?;
+            if value.is_empty() || value.iter().all(|byte| *byte == 0) {
+                return Err(serde::de::Error::custom("v5.1 finalisation field must not be an empty or zero placeholder"));
+            }
+            Ok(Some(value))
+        }
+    }
+    deserializer.deserialize_option(Visitor)
+}
+
+fn deserialize_nonnull_option_array_32<'de, D>(deserializer: D) -> Result<Option<[u8; 32]>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<[u8; 32]>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("a non-null 32-byte hash") }
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 module_hash must be omitted, not null")) }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 module_hash must be omitted, not null")) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
+            let value = serde_bytes_v5::deserialize_array_32(d)?;
+            if value == ZERO_HASH { return Err(serde::de::Error::custom("v5.1 module_hash must not be zero")); }
+            Ok(Some(value))
+        }
+    }
+    deserializer.deserialize_option(Visitor)
+}
+
+fn deserialize_nonnull_option_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("a non-null, non-empty string") }
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 trust_root_key_id must be omitted, not null")) }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> { Err(E::custom("v5.1 trust_root_key_id must be omitted, not null")) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
+            let value = String::deserialize(d)?;
+            if value.is_empty() { return Err(serde::de::Error::custom("v5.1 trust_root_key_id must not be empty")); }
+            Ok(Some(value))
+        }
+    }
+    deserializer.deserialize_option(Visitor)
+}
+
+/// Corrected active mktd02-v5.1 receipt.  Its four finalisation-derived
+/// fields are optional in memory and structurally omitted from pending wire
+/// receipts; v5 remains represented by [`DeletionReceiptV5`] unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, CandidType)]
+#[serde(try_from = "DeletionReceiptV51RawWire")]
+pub struct DeletionReceiptV51 {
+    pub protocol_version: String,
+    pub receipt_id: [u8; 32],
+    pub canister_id: Principal,
+    pub record_id: Vec<u8>,
+    pub pre_state_hash: [u8; 32],
+    pub post_state_hash: [u8; 32],
+    pub tombstone_hash: [u8; 32],
+    pub deletion_event_hash: [u8; 32],
+    pub module_hash: Option<[u8; 32]>,
+    pub timestamp: u64,
+    pub deletion_seq: u64,
+    pub bls_certificate: Option<Vec<u8>>,
+    pub trust_root_key_id: Option<String>,
+    pub module_hash_certificate: Option<Vec<u8>>,
+}
+
+impl DeletionReceiptV51 {
+    pub fn state(&self) -> ReceiptState {
+        let fields = [
+            self.bls_certificate.is_some(), self.module_hash_certificate.is_some(),
+            self.module_hash.is_some(), self.trust_root_key_id.is_some(),
+        ];
+        match classify_protocol(&self.protocol_version) {
+            Some(ProtocolVersion::V51) if fields.iter().all(|present| !present) => ReceiptState::Pending,
+            Some(ProtocolVersion::V51) if fields.iter().all(|present| *present) => ReceiptState::FinalizedCandidate,
+            _ => ReceiptState::InvalidIncompleteFinalization,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DeletionReceiptV51Wire {
+    protocol_version: String,
+    #[serde(serialize_with = "serde_bytes_v5::serialize_array_32")] receipt_id: [u8; 32],
+    canister_id: Principal,
+    #[serde(serialize_with = "serde_bytes_v5::serialize_vec")] record_id: Vec<u8>,
+    #[serde(serialize_with = "serde_bytes_v5::serialize_array_32")] pre_state_hash: [u8; 32],
+    #[serde(serialize_with = "serde_bytes_v5::serialize_array_32")] post_state_hash: [u8; 32],
+    #[serde(serialize_with = "serde_bytes_v5::serialize_array_32")] tombstone_hash: [u8; 32],
+    #[serde(serialize_with = "serde_bytes_v5::serialize_array_32")] deletion_event_hash: [u8; 32],
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_option_array_32_v5")] module_hash: Option<[u8; 32]>,
+    timestamp: u64,
+    deletion_seq: u64,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serde_bytes_v5::serialize_option_vec")] bls_certificate: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")] trust_root_key_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serde_bytes_v5::serialize_option_vec")] module_hash_certificate: Option<Vec<u8>>,
+}
+
+fn serialize_option_array_32_v5<S>(value: &Option<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
+where S: Serializer {
+    match value { Some(value) => serde_bytes_v5::serialize_array_32(value, serializer), None => serializer.serialize_none() }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeletionReceiptV51RawWire {
+    protocol_version: String,
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_array_32")] receipt_id: [u8; 32],
+    canister_id: Principal,
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_vec")] record_id: Vec<u8>,
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_array_32")] pre_state_hash: [u8; 32],
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_array_32")] post_state_hash: [u8; 32],
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_array_32")] tombstone_hash: [u8; 32],
+    #[serde(deserialize_with = "serde_bytes_v5::deserialize_array_32")] deletion_event_hash: [u8; 32],
+    #[serde(default, deserialize_with = "deserialize_nonnull_option_array_32")] module_hash: Option<[u8; 32]>,
+    timestamp: u64,
+    deletion_seq: u64,
+    #[serde(default, deserialize_with = "deserialize_nonnull_option_vec")] bls_certificate: Option<Vec<u8>>,
+    #[serde(default, deserialize_with = "deserialize_nonnull_option_string")] trust_root_key_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nonnull_option_vec")] module_hash_certificate: Option<Vec<u8>>,
+    #[serde(default, rename = "certified_commitment", deserialize_with = "deserialize_key_present")] certified_commitment_present: bool,
+}
+
+impl TryFrom<DeletionReceiptV51RawWire> for DeletionReceiptV51 {
+    type Error = String;
+    fn try_from(w: DeletionReceiptV51RawWire) -> Result<Self, Self::Error> {
+        if classify_protocol(&w.protocol_version) != Some(ProtocolVersion::V51) {
+            return Err(format!("DeletionReceiptV51: {:?} is not a mktd02-v5.1 receipt; refusing to decode", w.protocol_version));
+        }
+        if w.certified_commitment_present { return Err(ERR_RETIRED_FIELD_CERTIFIED_COMMITMENT.to_string()); }
+        if w.deletion_event_hash == ZERO_HASH { return Err(ERR_INVALID_EVENT_HASH_ZERO.to_string()); }
+        Ok(DeletionReceiptV51 { protocol_version: w.protocol_version, receipt_id: w.receipt_id, canister_id: w.canister_id, record_id: w.record_id, pre_state_hash: w.pre_state_hash, post_state_hash: w.post_state_hash, tombstone_hash: w.tombstone_hash, deletion_event_hash: w.deletion_event_hash, module_hash: w.module_hash, timestamp: w.timestamp, deletion_seq: w.deletion_seq, bls_certificate: w.bls_certificate, trust_root_key_id: w.trust_root_key_id, module_hash_certificate: w.module_hash_certificate })
+    }
+}
+
+impl Serialize for DeletionReceiptV51 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        if classify_protocol(&self.protocol_version) != Some(ProtocolVersion::V51) { return Err(S::Error::custom("DeletionReceiptV51: protocol_version is not mktd02-v5.1; refusing to serialise")); }
+        if self.deletion_event_hash == ZERO_HASH { return Err(S::Error::custom(ERR_INVALID_EVENT_HASH_ZERO)); }
+        DeletionReceiptV51Wire { protocol_version: self.protocol_version.clone(), receipt_id: self.receipt_id, canister_id: self.canister_id, record_id: self.record_id.clone(), pre_state_hash: self.pre_state_hash, post_state_hash: self.post_state_hash, tombstone_hash: self.tombstone_hash, deletion_event_hash: self.deletion_event_hash, module_hash: self.module_hash, timestamp: self.timestamp, deletion_seq: self.deletion_seq, bls_certificate: self.bls_certificate.clone(), trust_root_key_id: self.trust_root_key_id.clone(), module_hash_certificate: self.module_hash_certificate.clone() }.serialize(serializer)
     }
 }
 
@@ -1473,6 +1686,8 @@ pub enum AnyDeletionReceipt {
     V4(DeletionReceiptV4),
     /// `mktd02-v5`.
     V5(DeletionReceiptV5),
+    /// `mktd02-v5.1` corrected active line.
+    V51(DeletionReceiptV51),
 }
 
 /// Reads only `protocol_version`; every other key is ignored.
@@ -1508,6 +1723,9 @@ impl AnyDeletionReceipt {
             ProtocolVersion::V5 => DeletionReceiptV5::deserialize(value)
                 .map(AnyDeletionReceipt::V5)
                 .map_err(|e| e.to_string()),
+            ProtocolVersion::V51 => DeletionReceiptV51::deserialize(value)
+                .map(AnyDeletionReceipt::V51)
+                .map_err(|e| e.to_string()),
             ProtocolVersion::V2 | ProtocolVersion::V3 | ProtocolVersion::V4 => {
                 DeletionReceiptV4::deserialize(value)
                     .map(AnyDeletionReceipt::V4)
@@ -1525,6 +1743,9 @@ impl AnyDeletionReceipt {
             ProtocolVersion::V5 => ciborium::from_reader::<DeletionReceiptV5, _>(bytes)
                 .map(AnyDeletionReceipt::V5)
                 .map_err(|e| e.to_string()),
+            ProtocolVersion::V51 => ciborium::from_reader::<DeletionReceiptV51, _>(bytes)
+                .map(AnyDeletionReceipt::V51)
+                .map_err(|e| e.to_string()),
             ProtocolVersion::V2 | ProtocolVersion::V3 | ProtocolVersion::V4 => {
                 ciborium::from_reader::<DeletionReceiptV4, _>(bytes)
                     .map(AnyDeletionReceipt::V4)
@@ -1537,6 +1758,7 @@ impl AnyDeletionReceipt {
         match self {
             AnyDeletionReceipt::V4(r) => &r.protocol_version,
             AnyDeletionReceipt::V5(r) => &r.protocol_version,
+            AnyDeletionReceipt::V51(r) => &r.protocol_version,
         }
     }
 
@@ -1544,6 +1766,7 @@ impl AnyDeletionReceipt {
         match self {
             AnyDeletionReceipt::V4(r) => r.receipt_id,
             AnyDeletionReceipt::V5(r) => r.receipt_id,
+            AnyDeletionReceipt::V51(r) => r.receipt_id,
         }
     }
 
@@ -1552,6 +1775,7 @@ impl AnyDeletionReceipt {
         match self {
             AnyDeletionReceipt::V4(r) => r.state(),
             AnyDeletionReceipt::V5(r) => r.state(),
+            AnyDeletionReceipt::V51(r) => r.state(),
         }
     }
 }

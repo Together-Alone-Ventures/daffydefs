@@ -14,6 +14,7 @@ pub enum ProtocolLine {
     V3,
     V4,
     V5,
+    V51,
 }
 
 impl ProtocolLine {
@@ -21,6 +22,7 @@ impl ProtocolLine {
     pub fn of(receipt: &AnyDeletionReceipt) -> Self {
         match receipt {
             AnyDeletionReceipt::V5(_) => ProtocolLine::V5,
+            AnyDeletionReceipt::V51(_) => ProtocolLine::V51,
             AnyDeletionReceipt::V4(r) => Self::of_v4_label(&r.protocol_version),
         }
     }
@@ -39,12 +41,12 @@ impl ProtocolLine {
     }
 
     pub fn is_historical(self) -> bool {
-        self != ProtocolLine::V5
+        !matches!(self, ProtocolLine::V5 | ProtocolLine::V51)
     }
 
     /// Whether V3A (subnet-attested code identity) exists on this line.
     pub fn has_module_hash_certification(self) -> bool {
-        matches!(self, ProtocolLine::V4 | ProtocolLine::V5)
+        matches!(self, ProtocolLine::V4 | ProtocolLine::V5 | ProtocolLine::V51)
     }
 }
 

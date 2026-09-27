@@ -1,12 +1,50 @@
-# MKTd02-v5 — Serialization and Hash Formulas
+# MKTd02 v5 / v5.1 — Serialization and Hash Formulas
 
-**Status:** RATIFIED.
+**Status:** `mktd02-v5` is frozen historical; `mktd02-v5.1` is the corrected active line.
+
+**v5.1 governing authority:** [`docs/rulings/2026-09-25-mktd02-v5.1-amendment.md`](../rulings/2026-09-25-mktd02-v5.1-amendment.md) §§2–22. Every active v5.1 rule below is governed by that committed amendment; earlier A-1(a), PR-7, and SR-11 material is historical provenance unless separately consistent with it.
 
 **Ratification:** Ratified by Stef and G, 12 Sep 2026 (phase 1 rulings); amended 13 Sep 2026 for the Slice 3a corrections (A-1(a) EVENT_V2, A-2(b) byte strings), CD CONFORMANT.
 
-**Scope:** every value a verifier of a `mktd02-v5` CVDR recomputes, and the byte-exact wire encoding of the receipt. Historical constructions (`mktd02-v2`…`mktd02-v4`) are in §8, separated from the normative v5 set.
+**Scope:** every value a verifier of a `mktd02-v5` or `mktd02-v5.1` CVDR recomputes, and the byte-exact wire encoding of each line. The historical `mktd02-v5` sections remain authoritative for already-issued v5 receipts and are never repointed.
 
 **Authority:** this document, once ratified, is the derivation source for the published v5 test vectors. If the implementation and this document disagree on a formula or an encoding, that disagreement is a finding for ruling — neither side is silently adopted.
+
+---
+
+## Amendment history and line selection
+
+**Historical line — `mktd02-v5`.** The 12 Sep 2026 A-1(a) ruling selected the six-part `MKTD02_EVENT_V2` construction. The 14 Sep 2026 corpus was countersigned against that construction. It is frozen historical authority: existing and already-issued `mktd02-v5` receipts remain verifiable under exactly that formula, and `MKTD02_EVENT_V2` is never repointed.
+
+```text
+deletion_event_hash = H_tag(
+  "MKTD02_EVENT_V2",
+  pre_state_hash, post_state_hash, receipt_id,
+  u64_be(timestamp), module_hash, u64_be(deletion_seq)
+)
+```
+
+**Corrected active line — `mktd02-v5.1`.** On 25 Sep 2026 Stef ratified the *MKTd02 v5.1 Protocol Correction and Historical-Freeze Amendment*. It supersedes A-1(a) for newly issued receipts only. The active corrected line uses `MKTD02_EVENT_V3`:
+
+```text
+receipt_id = ReceiptId(canister_id, record_id, deletion_seq)
+
+deletion_event_hash = H_tag(
+  "MKTD02_EVENT_V3",
+  pre_state_hash, post_state_hash, receipt_id,
+  u64_be(timestamp), u64_be(deletion_seq)
+)
+```
+
+`module_hash` is **not** an EVENT_V3 operand. `deletion_seq` remains deliberately explicit; `manifest_hash` remains excluded. Code identity is a separate finalisation/V3A proposition, authenticated by `module_hash_certificate` and its certified module-hash leaf.
+
+The 25 Sep amendment records that `[ORIGIN: implementation]` is provenance, not authority. Every such item must trace to an independent governing ruling or receive explicit item-level ratification after consistency checking; provenance markers are retained.
+
+### v5.1 carry-over and overrides
+
+Amendment §3 establishes the carry-over: all ratified `mktd02-v5` rules apply unchanged to `mktd02-v5.1`, including direct certification (`certified_data = deletion_event_hash`), the genesis placeholder, `receipt_id` derivation, canonical field order applied to fields actually present, CBOR and JSON encoding, decoder and serialiser rules, rejection/error-precedence rules, and exact version dispatch. Where an old v5 rule conflicts with an applicable v5.1 amendment requirement, that amendment requirement governs for v5.1 only.
+
+The specific v5.1 overrides are defined by their applicable amendment sections: §3 fixes exact `protocol_version = "mktd02-v5.1"`; later sections, especially §§4–11, define EVENT_V3 (§3.4.1), the structural absence of the four finalisation-derived pending fields (§5.2), no empty-string `trust_root_key_id` fallback for v5.1, and fail-closed partial finalisation (§5.2).
 
 ---
 
@@ -72,11 +110,11 @@ hash_historical(retired_tag, [parts...]) = SHA-256( retired_tag ‖ part_0 ‖ .
 
 ## 2. Tag registry
 
-### 2.1 Active tags
+### 2.1 Version/tag registry
 
 “Active” means not retired. Active tags are grouped by whether the v5 line uses them.
 
-**Active — used by v5**
+**Frozen historical — used by `mktd02-v5`**
 
 | Tag (exact ASCII bytes) | Length | Used for |
 |---|---|---|
@@ -86,7 +124,13 @@ hash_historical(retired_tag, [parts...]) = SHA-256( retired_tag ‖ part_0 ‖ .
 | `MKTD02_GENESIS_V1` | 17 | `genesis_certified_data` (§3.6) |
 | `MKTD02_SALT_V1` | 14 | per-canister salt (§3.2) |
 
-**Active — other lines**
+**Active corrected — used by `mktd02-v5.1`**
+
+| Tag (exact ASCII bytes) | Length | Used for |
+|---|---|---|
+| `MKTD02_EVENT_V3` | 15 | corrected `deletion_event_hash` (§3.4.1) |
+
+**Other retained lines**
 
 | Tag (exact ASCII bytes) | Length | Used for |
 |---|---|---|
@@ -94,7 +138,7 @@ hash_historical(retired_tag, [parts...]) = SHA-256( retired_tag ‖ part_0 ‖ .
 | `MKTD02_MANIFEST_V1` | 18 | `manifest_hash` — **not** part of any v5 receipt value |
 | `MKTD02_RECEIPT_V1` | 17 | `receipt_id` of the frozen `mktd02-v2` line only (§8.3) |
 
-`MKTD02_GENESIS_V1` was added by ruling SR-06 (11 Sep 2026). The grouping and active-registry membership are `[ORIGIN: implementation — ratified 12 Sep 2026]` (`src/hashing.rs:55`–`:84`); ruling F-2. `MKTD02_MANIFEST_V1` remains reserved for configurations that carry a manifest (not Leaf), and `MKTD02_RECEIPT_V1` remains active only for the frozen v2 line.
+`MKTD02_EVENT_V2` remains an authorised historical-verification tag for exact `mktd02-v5` receipts; it is not retired or made unverifiable. `MKTD02_EVENT_V3` is the active corrected tag for `mktd02-v5.1` only. `MKTD02_GENESIS_V1` was added by ruling SR-06 (11 Sep 2026). The grouping and active-registry membership are `[ORIGIN: implementation — ratified 12 Sep 2026]` (`src/hashing.rs:55`–`:84`); ruling F-2. `MKTD02_MANIFEST_V1` remains reserved for configurations that carry a manifest (not Leaf), and `MKTD02_RECEIPT_V1` remains active only for the frozen v2 line.
 
 `MKTD_TOMBSTONE_V1` is **not** a tag. It is a constant seed (§3.1). A tag prefixes a hash; the tombstone constant is a value written into storage. They must never be interchanged.
 
@@ -155,7 +199,7 @@ This value is **diagnostic only; it is not part of the verification chain**.
 
 *Origin:* SHARED context pack line 290 for the preimage parts and order. The pack's mixed-case spelling `MKTd02_TOMBSTONE_HASH_V1` is a documentation typo; the exact ASCII tag bytes are `MKTD02_TOMBSTONE_HASH_V1`. Integer widths and endianness are `[ORIGIN: implementation — ratified 12 Sep 2026]` (`mktd02/src/engine.rs:124`–`:133`, MKTd02 repository); rulings F-4 and F-5.
 
-### 3.4 `deletion_event_hash`
+### 3.4 Historical `mktd02-v5` `deletion_event_hash` — frozen EVENT_V2
 
 ```text
 deletion_event_hash = hash_with_tag(
@@ -175,7 +219,24 @@ The v5 V1 consistency check first recomputes `receipt_id` from §3.5 and equalit
 
 An all-zero `deletion_event_hash` is not a legitimate value; it is refused on both decode and serialisation (§7).
 
-*Origin:* ruling A-1(a), 12 Sep 2026, as amended by Slice 3a; White Paper v5 Table 3 and Figure 4 (receipt-identity binding); SHARED context pack line 291 (construction lineage). Field order, redundant `deletion_seq`, `module_hash` inclusion, `manifest_hash` exclusion, and 8-byte big-endian integer encodings are `[ORIGIN: implementation — ratified 12 Sep 2026]`; implemented by `deletion_event_hash_v5` (`src/receipt.rs`) and used by the MKTd02 engine.
+*Historical origin:* ruling A-1(a), 12 Sep 2026, as amended by Slice 3a. The `module_hash` inclusion was `[ORIGIN: implementation — ratified 12 Sep 2026]`. The 25 Sep 2026 amendment freezes this authority for `mktd02-v5` only and supersedes it for new receipts.
+
+### 3.4.1 Active `mktd02-v5.1` `deletion_event_hash` — EVENT_V3
+
+```text
+receipt_id = ReceiptId(canister_id, record_id, deletion_seq)
+
+deletion_event_hash = hash_with_tag(
+  "MKTD02_EVENT_V3",
+  [ pre_state_hash,
+    post_state_hash,
+    receipt_id,
+    u64_be(timestamp),
+    u64_be(deletion_seq) ]
+)
+```
+
+`module_hash` is not an operand. A change to `module_hash` alone therefore does not change EVENT_V3. A change to the checked `receipt_id` does change EVENT_V3. `manifest_hash` is excluded. The separate V3A proposition validates certificate evidence at `/canister/<canister_id>/module_hash`; it does not alter the event-hash preimage.
 
 ### 3.5 `receipt_id`
 
@@ -207,7 +268,7 @@ A verifier that finds a certificate whose certified data equals this value has b
 
 *Origin:* ruling 1b.5, **11 Sep 2026**. Confirmed at `src/receipt.rs:933`.
 
-### 3.7 `certified_data` under `mktd02-v5`
+### 3.7 `certified_data` under `mktd02-v5` and `mktd02-v5.1`
 
 ```text
 certified_data = deletion_event_hash        (after a deletion)
@@ -222,9 +283,9 @@ Only the deletion path may publish a new certified value; lifecycle handling re-
 
 ---
 
-## 4. Receipt wire format — byte-exact freeze
+## 4. Historical `mktd02-v5` receipt wire format — byte-exact freeze
 
-This section fixes the exact bytes of a `mktd02-v5` receipt in both encodings. Unless stated otherwise, **every design-detail rule in §4 is `[ORIGIN: implementation — ratified 12 Sep 2026]`** under rulings F-6 through F-17. The flags are retained to record their origin and disposition. Code references are to `src/receipt.rs`.
+This section fixes the exact bytes of a `mktd02-v5` receipt in both encodings. Per the v5.1 carry-over rule, its field ordering (for fields present), CBOR/JSON encoding, decoder/serialiser, and rejection/error-precedence rules also apply to v5.1, except for the v5.1 structural-absence overrides in §5.2 and the absence of the v5 empty-string trust-root fallback. Unless stated otherwise, **every design-detail rule in §4 is `[ORIGIN: implementation — ratified 12 Sep 2026]`** under rulings F-6 through F-17.
 
 ### 4.1 Field list and order
 
@@ -299,7 +360,7 @@ There is no `certified_commitment` field and no replacement for it. The key orde
 
 Serialisation refuses, rather than reshaping:
 
-- a `protocol_version` other than exactly `"mktd02-v5"` — no fallback to another line's wire shape;
+- a protocol version other than exactly `"mktd02-v5"` or `"mktd02-v5.1"` — no fallback to another line's wire shape;
 - an all-zero `deletion_event_hash`, symmetric with decode (*Origin:* ruling 1b.4, 12 Sep 2026).
 
 ### 4.6 Error precedence
@@ -318,6 +379,8 @@ When more than one fault is present, the first applicable is reported:
 
 ## 5. Receipt state rule
 
+### 5.1 Historical `mktd02-v5` state/wire freeze
+
 Classification by certificate completeness, for `mktd02-v5`:
 
 | `bls_certificate` | `module_hash_certificate` | State |
@@ -329,13 +392,35 @@ Classification by certificate completeness, for `mktd02-v5`:
 
 Exactly one certificate is a malformed finalisation: it is not `Pending`, and must never be treated as verifiable-finalized. A receipt whose `protocol_version` is not `"mktd02-v5"` classifies as `InvalidIncompleteFinalization`.
 
-*Origin:* release notes v0.5.0 "Receipt-state rule"; ratification record 3.4. Confirmed at `receipt.rs:1008`–`:1019`.
+*Origin:* release notes v0.5.0 "Receipt-state rule"; ratification record 3.4. Confirmed at `receipt.rs:1240`–`:1251`.
+
+### 5.2 Active `mktd02-v5.1` pending/final wire and state
+
+*Governing authority:* `docs/rulings/2026-09-25-mktd02-v5.1-amendment.md` §§6 and 9.
+
+For a **Pending** `mktd02-v5.1` receipt, these fields are structurally absent: `bls_certificate`, `module_hash_certificate`, `module_hash`, and `trust_root_key_id`. They must not be represented as `null`, `""`, zero hashes, or placeholder values.
+
+For a **FinalizedCandidate** `mktd02-v5.1` receipt, all four fields are present. Any partial presence of this finalisation set is `InvalidIncompleteFinalization` and fails closed. These v5.1 absence rules do not alter the frozen v5 fourteen-key/null wire semantics in §4 and §5.1.
+
+### 5.3 PR-7 — certified module-hash extraction at Phase C
+
+*Governing authority:* `docs/rulings/2026-09-25-mktd02-v5.1-amendment.md` §7.
+
+For `mktd02-v5.1`, Phase C obtains `module_hash` by extracting the exact certified leaf at `/canister/<canister_id>/module_hash` from `module_hash_certificate`. Extraction must succeed and yield exactly the required module-hash length and shape; the extracted value becomes `receipt.module_hash`. A missing path, wrong path, malformed tree or value, invalid value shape or length, or any other extraction failure is an explicit finalisation error. A receipt must not become finalised after any such failure.
+
+This extraction establishes the receipt value only. It does not replace V3A authentication of the certificate, delegation, canister range, and selected trust root.
+
+### 5.4 SR-11 — trust-root ownership
+
+*Governing authority:* `docs/rulings/2026-09-25-mktd02-v5.1-amendment.md` §8.
+
+For `mktd02-v5.1`, `trust_root_key_id` is structurally absent while Pending. At Phase C it is stamped from trusted core configuration (`active_key_id()`); the Finalisation Client never selects it. The receipt label never selects a verifier root. A verifier surfaces the receipt label, the root actually used, and any mismatch; label mismatch alone is informational and non-gating.
 
 ---
 
 ## 6. Protocol version matching
 
-`"mktd02-v5"` is matched **exactly**. `"mktd02-v5-x"`, `"mktd02-v50"` and `"mktd02-v5 "` are unrecognised and hard-error on decode and on serialisation. (The frozen earlier lines match by prefix — §8.4.)
+`"mktd02-v5"` and `"mktd02-v5.1"` are distinct exact protocol versions. `"mktd02-v5-x"`, `"mktd02-v50"`, `"mktd02-v5 "`, and every near-match or prefix form are unrecognised and hard-error on decode and serialisation. Version dispatch selects its own frozen construction: v5 uses EVENT_V2; v5.1 uses EVENT_V3. No prefix matching is permitted.
 
 *Origin:* ruling 1b.7 (12 Sep 2026); release notes v0.5.0 "Protocol version". Confirmed at `receipt.rs:252`–`:264`.
 
@@ -343,18 +428,20 @@ Exactly one certificate is a malformed finalisation: it is not `Pending`, and mu
 
 ## 7. Named rejections
 
-| Exact string | Raised at | Condition |
+The named rejections, their layers, and the associated error-precedence rules apply to both exact lines, `mktd02-v5` and `mktd02-v5.1`, under the §3 carry-over rule. The `certified_commitment` retired-field rejection and unknown-field handling are the same for both lines: `certified_commitment` is refused by the named retired-field rejection, and every other key outside the applicable receipt field set is a structural unknown-field error.
+
+| Name / required text | Raised at | Condition |
 |---|---|---|
-| `retired-field:certified_commitment` | decode | a `mktd02-v5` receipt carries the `certified_commitment` key, with any value including null |
+| `retired-field:certified_commitment` | decode | either exact line carries the `certified_commitment` key, with any value including null |
 | `invalid-event-hash:zero` | decode_and_serialise | `deletion_event_hash` is all-zero |
 | `no-deletion-certified` | verify | certified data equals `genesis_certified_data(canister_id)` — no deletion has been certified |
-| `unknown field` … | decode | any key outside §4.1 on a `mktd02-v5` receipt |
+| `unknown field` … | decode | any key other than `certified_commitment` outside the applicable receipt field set: §4.1 for v5, or §4.1 as modified by the v5.1 structural-absence rules in §5.2 |
 | `v1:receipt-id-mismatch` | verify | recomputed `receipt_id` under §3.5 != presented `receipt_id`; first V1 step |
-| `v1:event-hash-mismatch` | verify | recomputed `deletion_event_hash` under §3.4 != presented `deletion_event_hash`; evaluated only after `receipt_id` passes |
+| `v1:event-hash-mismatch` | verify | recomputed `deletion_event_hash` under §3.4 (v5) or §3.4.1 (v5.1) != presented `deletion_event_hash`; evaluated only after `receipt_id` passes |
 
 Reference implementation: zombie_core::verify_v1.
 
-Unrecognised or wrong-line `protocol_version` is also a hard error on both decode and serialisation. The corpus freezes the message fragment `unrecognised protocol_version` for v5 near-miss dispatch and the fragment `not a mktd02-v5 receipt` when a frozen-line label is presented to the v5 type. These are fragment assertions, not complete framework error strings. The historical opposite-direction prefix is fixed separately by §8.4.
+For both exact lines, an unrecognised, wrong-line, near-match, or prefix `protocol_version` is a hard error on decode and serialisation. The corpus freezes only the `unrecognised protocol_version` prefix for v5 near-miss dispatch and the `not a mktd02-v5 receipt` fragment when a frozen-line label is presented to the v5 type; these are not complete framework error strings. No v5.1-specific complete error string or fragment is frozen here: its rejection condition and layer are the carried-forward rule. The historical opposite-direction prefix is fixed separately by §8.4.
 
 Corpus `layer` strings use exactly this ratified vocabulary: `decode | serialise | decode_and_serialise | verify`.
 
@@ -444,6 +531,10 @@ No length prefixes; `nonce` is the v2 name of the field later called `deletion_s
 - [x] White Paper v5 (Figure 4, §2.2) and SHARED context-pack formula sections reconciled against this document
 - [x] Independent rederivation complete — zero underivable values among the derivable corpus; `v4h-v3-wire` excluded by design as a copied frozen historical implementation-regression artefact. Phase 6, 13 Sep 2026, bundle SHA-256 `5dc6e2b2a356c0d780538adeba373514c527e99578fd87dc775c49c72a33468a`. 47/47 compared values matched; 0 mismatches. G-1/G-2/G-3 documentary gaps closed by Phase 1c and its corrective commit; exact original evidence is archived in [docs/dev/phase6](../dev/phase6/README.md), superseding the reconstructed report/script. G-4 recorded as the intentional exclusion.
 - [ ] Countersignature on v5 vectors
+
+### v5.1 carry-forward/conformance
+
+The pending-window upgrade/finalisation lock carries forward unchanged to v5.1. Existing v5 coverage is `harness/tests/runtime.rs::upgrade_during_pending_window_traps`. Before v5.1 release, `V51-LOCK-01` requires this invariant to be exercised explicitly on the `mktd02-v5.1` engine path.
 
 ---
 

@@ -44,6 +44,7 @@ pub struct V2Evaluation {
 pub fn verify(receipt: &AnyDeletionReceipt, trust_root: &TrustRoot) -> V2Evaluation {
     let (canister_id, bls_certificate, timestamp) = match receipt {
         AnyDeletionReceipt::V5(r) => (r.canister_id, &r.bls_certificate, r.timestamp),
+        AnyDeletionReceipt::V51(r) => (r.canister_id, &r.bls_certificate, r.timestamp),
         AnyDeletionReceipt::V4(r) => (r.canister_id, &r.bls_certificate, r.timestamp),
     };
     let Some(cert_bytes) = bls_certificate else {
@@ -92,6 +93,12 @@ fn direct_certification(
                     named,
                     Some(format!("certified_data {}", hex::encode(certified_data))),
                 );
+            }
+            (r.deletion_event_hash, "deletion_event_hash")
+        }
+        AnyDeletionReceipt::V51(r) => {
+            if let Err(named) = check_certified_data_not_genesis(&r.canister_id, &certified_data) {
+                return CheckOutcome::fail(named, Some(format!("certified_data {}", hex::encode(certified_data))));
             }
             (r.deletion_event_hash, "deletion_event_hash")
         }
@@ -507,7 +514,7 @@ pub fn verify_certificate_over_module_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ic_agent::hash_tree::{fork, label, leaf, HashTree};
+    use ic_agent::hash_tree::{empty, fork, label, leaf, HashTree};
 
     const SUBNET_ID: &[u8] = &[0xfe, 0x32, 0x0f, 0x2f, 0xbb];
     // A different subnet — ranges signed under it must NOT authorize a lookup
@@ -598,6 +605,26 @@ mod tests {
                 label(RANGE_LOW, label("extra", leaf(ranges_cbor()))),
             ),
         ))
+    }
+
+    fn empty_sharded_subtree() -> Certificate {
+        // Found /canister_ranges/<subnet> with no leaf children — empty resolved set.
+        // Twin of store `empty_resolved_sharded_set_is_authorization_failure`.
+        cert_with_tree(label("canister_ranges", label(SUBNET_ID, empty())))
+    }
+
+    #[test]
+    fn empty_resolved_sharded_set_is_authorization_failure() {
+        let err = authorize_canister_ranges(
+            &empty_sharded_subtree(),
+            SUBNET_ID,
+            &Principal::from_slice(IN_RANGE),
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("missing canister_ranges in both"),
+            "empty sharded subtree must fail closed like RangesMissing, got: {err}"
+        );
     }
 
     #[test]

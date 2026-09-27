@@ -18,8 +18,8 @@ serde = { version = "1", features = ["derive"] }
 ic-stable-structures = "0.7"
 shared = { path = "../shared" }
 
-# Exact inspected v5 Leaf/core inputs; source replacement is in .cargo/config.toml.
-mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", rev = "2a10bf3ee056d3ff53327ca23654609a6f430c5e", package = "mktd02" }
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "223723885cfbb548d6b218aee8500b073fda4b58" }
+# Exact inspected v5.1 Leaf/core inputs; source replacement is in .cargo/config.toml.
+mktd02 = { git = "https://github.com/Together-Alone-Ventures/ICP-Delete-Leaf.git", rev = "8e5024dc8d27be19dafc579b2ac955e45da28b0c", package = "mktd02" }
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "8ac64df5d0110ec7ebbbe8382b7a826dda17085a" }
 
 hex = "0.4"

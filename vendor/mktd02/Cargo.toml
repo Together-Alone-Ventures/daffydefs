@@ -38,7 +38,9 @@ candid = "0.10"
 ciborium = "0.2"
 hex = "0.4"
 ic-cdk = "0.18"
+ic-certification = "=3.2.0"
 ic-stable-structures = "0.7"
+serde_cbor = "=0.11.2"
 
 [dependencies.serde]
 version = "1"
@@ -50,4 +52,4 @@ optional = true
 
 [dependencies.zombie-core]
 git = "https://github.com/Together-Alone-Ventures/zombie-core"
-rev = "223723885cfbb548d6b218aee8500b073fda4b58"
+rev = "8ac64df5d0110ec7ebbbe8382b7a826dda17085a"

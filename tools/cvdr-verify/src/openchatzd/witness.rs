@@ -64,7 +64,10 @@ mod tests {
     use ic_agent::hash_tree::{label, leaf};
 
     fn single_leaf_witness(receipt_id: &[u8; 32], receipt_hash: &[u8; 32]) -> Vec<u8> {
-        let tree = label(RECEIPTS_LABEL, label(receipt_id.to_vec(), leaf(receipt_hash.to_vec())));
+        let tree = label(
+            RECEIPTS_LABEL,
+            label(receipt_id.to_vec(), leaf(receipt_hash.to_vec())),
+        );
         serde_cbor::to_vec(&tree).unwrap()
     }
 
@@ -85,7 +88,9 @@ mod tests {
         let rid = [0x11u8; 32];
         let rhash = [0xAAu8; 32];
         let w = single_leaf_witness(&rid, &rhash);
-        let err = decode_and_locate(&w, &[0x22u8; 32]).unwrap_err().to_string();
+        let err = decode_and_locate(&w, &[0x22u8; 32])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("ABSENCE") || err.contains("pruned"), "{err}");
     }
 }

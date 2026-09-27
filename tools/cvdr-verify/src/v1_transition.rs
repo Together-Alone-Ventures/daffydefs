@@ -13,7 +13,7 @@ use zombie_core::hashing::{
     hash_with_tag, sha256, TAG_CERTIFIED, TAG_TOMBSTONE_HASH, TOMBSTONE_SEED,
 };
 use zombie_core::receipt::{compute_receipt_id, compute_receipt_id_v2};
-use zombie_core::{deletion_event_hash_v1, verify_v1, AnyDeletionReceipt, DeletionReceiptV4};
+use zombie_core::{deletion_event_hash_v1, verify_v1, verify_v1_v51, AnyDeletionReceipt, DeletionReceiptV4};
 
 use crate::report::{CheckOutcome, ProtocolLine};
 
@@ -30,6 +30,10 @@ pub fn verify(receipt: &AnyDeletionReceipt) -> CheckOutcome {
             Ok(()) => CheckOutcome::pass(
                 "receipt_id and deletion_event_hash recomputed (normative mktd02-v5 V1)",
             ),
+            Err(named) => CheckOutcome::fail(named, None),
+        },
+        AnyDeletionReceipt::V51(r) => match verify_v1_v51(r) {
+            Ok(()) => CheckOutcome::pass("receipt_id and deletion_event_hash recomputed (normative mktd02-v5.1 V1)"),
             Err(named) => CheckOutcome::fail(named, None),
         },
         AnyDeletionReceipt::V4(r) => verify_historical(r),

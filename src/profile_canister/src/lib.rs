@@ -730,6 +730,25 @@ fn receipt_response(receipt: zombie_core::AnyDeletionReceipt) -> MktdReceiptResp
             module_hash_certificate: r.module_hash_certificate,
             certified_commitment: None,
         },
+        // mktd02-v5.1: finalisation-derived fields are structurally absent
+        // while pending and are passed through as-is (never placeholders).
+        zombie_core::AnyDeletionReceipt::V51(r) => MktdReceiptResponse {
+            protocol_version: r.protocol_version,
+            receipt_id: hex::encode(r.receipt_id),
+            canister_id: r.canister_id,
+            record_id: r.record_id,
+            pre_state_hash: hex::encode(r.pre_state_hash),
+            post_state_hash: hex::encode(r.post_state_hash),
+            tombstone_hash: hex::encode(r.tombstone_hash),
+            deletion_event_hash: hex::encode(r.deletion_event_hash),
+            module_hash: r.module_hash.map(hex::encode),
+            timestamp: r.timestamp,
+            deletion_seq: r.deletion_seq,
+            bls_certificate: r.bls_certificate,
+            trust_root_key_id: r.trust_root_key_id,
+            module_hash_certificate: r.module_hash_certificate,
+            certified_commitment: None,
+        },
     }
 }
 

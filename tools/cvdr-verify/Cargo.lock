@@ -922,12 +922,14 @@ dependencies = [
  "ed25519-consensus",
  "elliptic-curve",
  "futures-util",
+ "getrandom 0.2.17",
  "hex",
  "http",
  "http-body",
  "ic-certification",
  "ic-transport-types",
  "ic-verify-bls-signature",
+ "js-sys",
  "k256",
  "leb128",
  "p256",
@@ -949,6 +951,9 @@ dependencies = [
  "tokio",
  "tower-service",
  "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -1131,6 +1136,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0242819d153cba4b4b05a5a8f2a7e9bbf97b6055b2a002b395c96b5ff3c0222"
 dependencies = [
  "cfg-if",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -1265,6 +1273,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "tokio",
+ "wasm-bindgen",
  "zombie-core",
 ]
 
@@ -2098,6 +2107,7 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
+ "js-sys",
  "num-conv",
  "powerfmt",
  "serde_core",
@@ -2747,7 +2757,7 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 [[package]]
 name = "zombie-core"
 version = "0.5.0"
-source = "git+https://github.com/Together-Alone-Ventures/zombie-core?rev=223723885cfbb548d6b218aee8500b073fda4b58#223723885cfbb548d6b218aee8500b073fda4b58"
+source = "git+https://github.com/Together-Alone-Ventures/zombie-core?rev=8ac64df5d0110ec7ebbbe8382b7a826dda17085a#8ac64df5d0110ec7ebbbe8382b7a826dda17085a"
 dependencies = [
  "candid",
  "ciborium",

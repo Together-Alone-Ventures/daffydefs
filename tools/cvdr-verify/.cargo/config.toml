@@ -1,6 +1,6 @@
-[source."git+https://github.com/Together-Alone-Ventures/zombie-core?rev=223723885cfbb548d6b218aee8500b073fda4b58"]
+[source."git+https://github.com/Together-Alone-Ventures/zombie-core?rev=8ac64df5d0110ec7ebbbe8382b7a826dda17085a"]
 git = "https://github.com/Together-Alone-Ventures/zombie-core"
-rev = "223723885cfbb548d6b218aee8500b073fda4b58"
+rev = "8ac64df5d0110ec7ebbbe8382b7a826dda17085a"
 replace-with = "vendored-sources"
 [source.vendored-sources]
 directory = "vendor"

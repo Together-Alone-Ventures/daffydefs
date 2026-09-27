@@ -29,8 +29,10 @@
 //! directly. This avoids any recomputation coupling to mutable runtime values.
 
 use crate::storage::{with_storage, with_storage_mut, Hash32, ReceiptBytes};
+use candid::Principal;
+use ic_certification::{Certificate, LookupResult};
 use zombie_core::nns_keys;
-use zombie_core::receipt::DeletionReceiptV5;
+use zombie_core::receipt::AnyDeletionReceipt;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -51,6 +53,9 @@ pub enum FinalizationError {
     ReceiptNotFound,
     /// Failed to re-encode the updated receipt.
     EncodingFailed(String),
+    /// The supplied module-hash certificate did not contain an exact valid
+    /// `/canister/<canister_id>/module_hash` 32-byte leaf.
+    ModuleHashCertificateInvalid(String),
 }
 
 impl core::fmt::Display for FinalizationError {
@@ -76,6 +81,10 @@ impl core::fmt::Display for FinalizationError {
             Self::EncodingFailed(e) => write!(
                 f,
                 "MKTd02: failed to re-encode receipt after finalization: {e}"
+            ),
+            Self::ModuleHashCertificateInvalid(e) => write!(
+                f,
+                "MKTd02: module_hash_certificate does not provide exact certified module_hash: {e}"
             ),
         }
     }
@@ -261,26 +270,38 @@ fn finalize_locked_receipt(
 
     // The pending receipt is always engine-produced (mktd02-v5): an upgrade
     // cannot occur while a receipt is pending (the lock traps it).
-    let mut receipt: DeletionReceiptV5 = ciborium::from_reader(receipt_bytes.0.as_slice())
+    let mut receipt = AnyDeletionReceipt::from_cbor(receipt_bytes.0.as_slice())
         .map_err(|e| {
             FinalizationError::EncodingFailed(format!("failed to decode pending receipt: {e}"))
         })?;
 
     // Guard: must not already be finalized
-    if receipt.bls_certificate.is_some() {
-        return Err(FinalizationError::AlreadyFinalized);
+    match &mut receipt {
+        AnyDeletionReceipt::V51(r) => {
+            if r.bls_certificate.is_some() { return Err(FinalizationError::AlreadyFinalized); }
+            let module_hash = extract_module_hash(&module_hash_certificate, r.canister_id)?;
+            r.bls_certificate = Some(certificate);
+            r.module_hash_certificate = Some(module_hash_certificate);
+            r.module_hash = Some(module_hash);
+            r.trust_root_key_id = Some(nns_keys::active_key_id().to_string());
+        }
+        // Historical receipts remain decodable with their frozen semantics.
+        AnyDeletionReceipt::V5(r) => {
+            if r.bls_certificate.is_some() { return Err(FinalizationError::AlreadyFinalized); }
+            r.bls_certificate = Some(certificate);
+            r.module_hash_certificate = Some(module_hash_certificate);
+            r.trust_root_key_id = nns_keys::active_key_id().to_string();
+        }
+        AnyDeletionReceipt::V4(_) => return Err(FinalizationError::ReceiptNotFound),
     }
-
-    // Embed both certificates and the root key ID together. Stored opaquely:
-    // no parsing/validation of module_hash_certificate in the canister.
-    receipt.bls_certificate = Some(certificate);
-    receipt.module_hash_certificate = Some(module_hash_certificate);
-    receipt.trust_root_key_id = nns_keys::active_key_id().to_string();
 
     // Re-encode and store
     let mut cbor_buf = Vec::new();
-    ciborium::into_writer(&receipt, &mut cbor_buf)
-        .map_err(|e| FinalizationError::EncodingFailed(e.to_string()))?;
+    match &receipt {
+        AnyDeletionReceipt::V4(r) => ciborium::into_writer(r, &mut cbor_buf),
+        AnyDeletionReceipt::V5(r) => ciborium::into_writer(r, &mut cbor_buf),
+        AnyDeletionReceipt::V51(r) => ciborium::into_writer(r, &mut cbor_buf),
+    }.map_err(|e| FinalizationError::EncodingFailed(e.to_string()))?;
 
     with_storage_mut(|s| {
         s.receipts
@@ -291,6 +312,25 @@ fn finalize_locked_receipt(
     crate::storage::release_finalization_lock();
 
     Ok(())
+}
+
+fn extract_module_hash(certificate_bytes: &[u8], canister_id: Principal) -> Result<[u8; 32], FinalizationError> {
+    let certificate: Certificate = serde_cbor::from_slice(certificate_bytes)
+        .map_err(|e| FinalizationError::ModuleHashCertificateInvalid(format!("malformed certificate: {e}")))?;
+    let value = match certificate.tree.lookup_path([
+        b"canister".as_ref(), canister_id.as_slice(), b"module_hash".as_ref(),
+    ]) {
+        LookupResult::Found(value) => value,
+        result => return Err(FinalizationError::ModuleHashCertificateInvalid(
+            format!("exact module_hash path absent: {result:?}"),
+        )),
+    };
+    if value.len() != 32 {
+        return Err(FinalizationError::ModuleHashCertificateInvalid(format!(
+            "module_hash is {} bytes, expected 32", value.len()
+        )));
+    }
+    Ok(value.try_into().expect("length checked"))
 }
 
 /// Check whether a receipt is pending finalization.
@@ -315,10 +355,32 @@ mod tests {
     use ic_stable_structures::memory_manager::MemoryManager;
     use ic_stable_structures::DefaultMemoryImpl;
     use zombie_core::receipt::{AnyDeletionReceipt, DeletionReceiptV5, ProtocolVersion};
+    use ic_certification::{labeled, leaf, Certificate};
 
     fn setup_test_storage(base: u8) {
         let mm = MemoryManager::init(DefaultMemoryImpl::default());
         setup_storage(&mm, base);
+    }
+
+    fn module_certificate(canister: Principal, value: &[u8], label: &[u8]) -> Vec<u8> {
+        let tree = labeled(
+            b"canister".as_ref(),
+            labeled(canister.as_slice(), labeled(label, leaf(value))),
+        );
+        serde_cbor::to_vec(&Certificate { tree, signature: vec![1], delegation: None }).unwrap()
+    }
+
+    #[test]
+    fn pr7_module_hash_leaf_failures_do_not_finalize() {
+        let canister = Principal::anonymous();
+        for cert in [
+            module_certificate(canister, &[7; 32], b"wrong_path"),
+            module_certificate(canister, &[7; 31], b"module_hash"),
+            vec![0xff],
+        ] {
+            let err = super::extract_module_hash(&cert, canister).unwrap_err();
+            assert!(matches!(err, FinalizationError::ModuleHashCertificateInvalid(_)));
+        }
     }
 
     /// Build a pending (un-finalized) receipt and place it in storage under

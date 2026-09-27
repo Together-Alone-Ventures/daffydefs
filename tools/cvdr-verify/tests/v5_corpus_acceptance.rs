@@ -621,6 +621,7 @@ fn historical_decode_tolerance_through_intake() {
         let result = match decode_receipt_json(value) {
             Ok(AnyDeletionReceipt::V4(_)) => "accepted",
             Ok(AnyDeletionReceipt::V5(_)) => "misrouted",
+            Ok(AnyDeletionReceipt::V51(_)) => "misrouted",
             Err(_) => "rejected",
         };
         assert_eq!(result, v["expected"]["result"], "{id}");

@@ -1,172 +1,133 @@
-## Verifier's Guide — OpenChatZD deletion receipts
+This DaffyDefs convenience copy tracks the authoritative mktd02-verify subtree at
+CVDR-Verify commit `67cbe4bf3878a1853a1839dfe96a76281ce3feea` (branch v5.1). It is version
+`0.8.0` with no invented release tag. Build the binary with Rust `1.97.1` using
+`cargo build --release --locked`.
 
-This DaffyDefs convenience copy tracks the authoritative MKTd02-v5 subtree at
-CVDR-Verify commit `560e483b047209ee83463dfab29da07acb422feb`. It is version
-`0.8.0` DRAFT with no invented release tag. Build the binary with Rust
-`1.97.1` using `cargo build --release --locked`.
+## Verifier's Guide — OpenChatZD deletion receipts (suite v5)
 
 ### What you are verifying
 
-A **CVDR package** is a self-contained artifact produced at account deletion. It verifies
-**offline from the package's certificate material and an independently obtained IC root
-key** — no access to OpenChat, no live canister, and no trust in whoever handed
-you the file. The portable JSON schema is **six package fields, plus `version`, plus one
-optional test-only field** (exact names from `FrozenWire` in `package.rs` — code is the
-contract):
+A **PortablePackageV3** is the self-contained artifact OpenChatZD serves at `GET /cvdr/<receipt_id>`
+once a deletion is finalised and its Index code-identity evidence is stored. It verifies **offline**
+from the package's certificate material and a trust root **you configure** — no access to OpenChat,
+no live canister, and no trust in whoever handed you the file. Exact field names are the contract
+(`package.rs`); the outer document has exactly these keys and **any other key is malformed**:
 
 ```
-schema             — schema identifier `openchatzd.cvdr.frozen_package`
-version            — schema version
-encoding           — OPTIONAL, defaults to "hex"
-receipt_body       — the receipt (fixed-width tag-concatenation, RECEIPT_BODY_V1)
-receipt_hash       — SHA-256 leaf bound into the certified tree
-tree_root          — certified receipt-tree root at capture
-witness_bytes      — IC HashTree witness, byte-for-byte as captured
-certificate_bytes  — IC certificate, byte-for-byte as captured
-certificate_time   — nanoseconds, from the certificate's /time
-root_key_hex       — OPTIONAL, test fixtures only; ignored unless --allow-fixture-root-key
+schema                        — "openchatzd.cvdr.portable_package"
+version                       — exactly 3
+encoding                      — "hex"
+trust_root_key_id             — SELECTOR of a verifier-configured root: "mainnet" | "non-production-test-root"
+frozen                        — hex of the exact FrozenWire JSON bytes (below)
+index_code_identity_evidence  — { certificate_bytes, index_module_hash }
 ```
 
-Reveal packages (`RevealWire`): `schema · version · encoding · salt · targets`.
+`frozen` decodes to the FrozenWire (`schema "openchatzd.cvdr.frozen_package"`, `version 1`):
+`receipt_body` (**RECEIPT_BODY_V2**), `receipt_hash`, `tree_root`, `witness_bytes`,
+`certificate_bytes`, `certificate_time`. A bare FrozenWire (no evidence) and a historical
+`PortablePackageV2` are still decoded; V2 is never produced any more.
+
+**Package version and body tag are dispatched together**: a V3 package must carry
+`RECEIPT_BODY_V2`, a V2 package `RECEIPT_BODY_V1`; any other pairing is `validity: FAIL`
+(`v1:version-tag-mismatch`).
+
+Reveal packages (`RevealWire` v2): `schema · version · encoding · salt · record_salt · targets`.
 
 ### Quick start
 
 ```
-mktd02-verify --package receipt.json
+mktd02-verify --package package.json
+mktd02-verify --package package.json --reveal reveal.json
 ```
 
-The verdict is one of:
+The grade uses the suite vocabulary:
 
-- **VerifiedFinal** — the receipt is internally intact, was included in the certified
-  state of the `index_canister_id` named in the receipt body, and the
-  certificate was captured within the allowed window of the committed deletion time.
-- **LateFinalized** — everything above is cryptographically valid, but the certificate
-  was captured outside the window. Weaker on *when*, not on *whether*: the certified
-  deletion receipt still verifies; only the promptness claim is downgraded. Never treat
-  this as VerifiedFinal.
-- **Reject** — one or more checks failed. The reason names the failed check; a rejected
-  package proves nothing.
+- **`validity: PASS`** — V1, V2 and V3A all pass: the receipt is intact, it was included in the
+  certified state of the `index_canister_id` named in the body, and the Index's module identity is
+  subnet-attested for the deletion.
+- **`validity: INCOMPLETE`** — V1 and V2 pass but V3A is `V3A_PENDING_IN_PROTECTED_WINDOW` (no
+  evidence yet; the Index may still capture it) or `V3A_PERMANENTLY_UNAVAILABLE` (no evidence and the
+  24 h window has lapsed; no later evidence can be valid). Never a pass, never a fail; the reason names
+  which. Code identity is **not** established.
+- **`validity: FAIL`** — a named check failed. A failed package proves nothing.
 
-### The trust anchor — obtain the IC root key independently
+`V3A_PENDING_IN_PROTECTED_WINDOW` and `V3A_PERMANENTLY_UNAVAILABLE` are **as-of-verification-time
+classifications, not cryptographic verdicts**: they depend on the verifier clock (`--now-ns`, else the
+system clock) measured against the receipt's `uninstall_completed_at + 24 h`. The same package can
+be PENDING at hour 3 and PERMANENTLY_UNAVAILABLE at hour 25; both remain `validity: INCOMPLETE`
+(exit 4). Whenever either is emitted the report prints the evaluation time and its source
+(`evaluated at … (source: --now-ns | system clock)`) together with that statement. A `V3A_PASS`,
+`INDEX_ATTESTATION_INVALID` or `INDEX_HASH_MISMATCH` does not depend on the clock.
 
-All verification chains to a single public constant: the **IC (NNS) root public key** —
-the root CA of this system. The built-in default is the mainnet NNS root key, and for any
-real verification you should corroborate it from multiple sources, preferably including:
+Exit codes: `0` PASS, `1` FAIL, `2` usage error (no verdict), `4` INCOMPLETE.
 
-- DFINITY's public documentation (the interface specification publishes the key);
-- the constant embedded in the official agent libraries (`agent-rs` / `agent-js`).
+### The trust root — a selector, never evidence
 
-As an additional operational check — not an equal trust anchor, since it rides your own
-network and toolchain — `dfx ping ic` prints the root key of the network you ping.
+`trust_root_key_id` in the package **selects** which root *you* have configured; it proves nothing by
+itself. The certificate must then authenticate (BLS threshold signature → NNS delegation → canister
+range) under that root. Unknown selectors fail closed.
 
-**Never accept a root key supplied by the package itself** — a forger would helpfully
-include their own. The `root_key_hex` field exists only so test fixtures (e.g. PocketIC
-artifacts) can be verified end-to-end, and it is ignored unless you pass
-`--allow-fixture-root-key`. That flag means: *this run does not verify against mainnet.*
+- `mainnet` selects the built-in IC (NNS) root key. For any real verification corroborate that
+  constant independently (DFINITY's interface specification; the official agent libraries).
+- `non-production-test-root` selects a **fixture** root and is honoured **only** with
+  `--allow-fixture-root-key`, the root supplied out of band with `--fixture-root-key-hex <hex DER>`
+  (or, for a bare FrozenWire fixture, its `root_key_hex`). The verdict then says
+  `NON-PRODUCTION root … TEST VERDICT ONLY`. A V3 package never carries root material.
+
+**Never accept a root key supplied by the package itself.** Without the flag a non-production
+selector is refused before anything is verified.
 
 ### What verification actually does
 
-1. **Body integrity** — parse `receipt_body` (versioned fixed-width tag-concatenation),
-   recompute the leaf `SHA256(RECEIPT_LEAF_TAG ‖ receipt_body)`, require it to equal
-   `receipt_hash`. The body binds the identities (both canister ids, the receipt id and
-   its derivation), the deletion evidence (`h_user_pre`, `h_index`, `commitment` — each a
-   tagged hash, none of them a bare module hash), the load-bearing timestamps, and the
-   cleanup-target commitment.
-2. **Inclusion** — decode `witness_bytes` as an IC HashTree, recompute its root, require
-   it to equal `tree_root`, and require the leaf to sit at path
-   `["receipts", receipt_id]` with `receipt_id` taken from the parsed body (never from
-   a caller argument).
-3. **Certification** — verify the certificate: subnet BLS threshold signature, NNS
-   delegation chain to the root key, and — **do not skip this** — that the delegation's
-   canister range covers the `index_canister_id` from the body. Skipping the range check
-   is the classic verifier mistake: without it, any subnet could vouch for any canister.
-   Then require the certificate's `certified_data` for that canister to equal
-   `tree_root`, and the package's `certificate_time` to equal the certificate's `/time`.
-4. **The window** — require `certificate_time ≥ receipt_committed_at` and
-   `Δ ≤ allowed window` (default 24 h, configurable). The timestamp being compared is
-   *inside* the hash-bound body and the certificate time is asserted by the subnet's
-   threshold signature — which is what makes backdating infeasible.
+- **V1** — exact version/tag dispatch; parse `receipt_body`; recompute
+  `receipt_id = SHA256(RECEIPT_ID_TAG ‖ record_id ‖ deletion_seq ‖ nonce)` from the displayed fields;
+  recompute the leaf `SHA256(RECEIPT_LEAF_TAG ‖ receipt_body)` and require it to equal `receipt_hash`.
+  `record_id` is the **non-identifying** `SHA256(RECORD_ID_TAG_V2 ‖ record_salt ‖ user principal)`:
+  it cannot be joined to a public identity without the user's RevealWire `record_salt`. With
+  `--reveal`, both `TARGETS_COMMITMENT_V1` and `record_id` are re-derived.
+- **V2** — decode `witness_bytes` as an IC HashTree; require its root to equal `tree_root` and the
+  leaf at `["receipts", receipt_id]` (receipt_id from the body, never a caller argument) to equal
+  `receipt_hash`; verify the certificate under the selected root — signature, delegation and, **do not
+  skip this**, the delegation's canister range covering `index_canister_id`; require
+  `certified_data == tree_root` and `certificate_time == /time`.
+- **V3A — subnet-attested Index code identity.** Authenticate `index_code_identity_evidence.certificate_bytes`
+  (a `read_state` certificate for `/canister/<index>/module_hash`) under the selected root; require its
+  `/time` to fall inside the protected interval `[uninstall_completed_at, uninstall_completed_at + 24 h]`
+  (both hash-bound in the body); require the displayed `index_module_hash` to equal the certified value.
+  V3A has exactly three outcomes — `V3A_PASS`, `V3A_PENDING_IN_PROTECTED_WINDOW`,
+  `V3A_PERMANENTLY_UNAVAILABLE`; `INDEX_ATTESTATION_INVALID` and `INDEX_HASH_MISMATCH` are named
+  failures. **Evidence-binding rule:** Index module-hash evidence is bound by (index_canister_id, certified /time within the receipt's window), not by receipt identity; one certificate may serve every receipt it qualifies for; a different Index canister, subnet, path or root fails. Where evidence is present and passes, it attests the
+  identity of the deployed module at certification time; the OpenChatZD Index upgrade interlock
+  bounds that window from uninstall to evidence capture.
+- **Non-gating facts** — the finalization-window tier (`certificate_time − receipt_committed_at`
+  vs `--window-hours`, default 24) and the five-value timing axis are reported and never grade.
 
-Those four run on every `--package` invocation. Nothing else is checked unless you ask:
-in particular, no module hash is compared against anything unless you pass
-`--expect-module-hash`.
+### Optional: operator expectation (`--expect-module-hash <64-hex>`)
 
-### Reveal-package mode (cleanup targets)
+Gating when supplied: on a `RECEIPT_BODY_V2` package the hash must equal the **V3A-certified** module
+hash (a V3A that is not PASS makes the assertion impossible → FAIL); on a historical V1 body it must
+reproduce `h_index`. Supply nothing and no expectation is compared — the report says so.
 
-The public receipt carries only a **count and a salted-hash commitment** of the user's
-group/community targets. The user (and only the user) holds the reveal package
-`{version, salt, sorted target list}`. Given both:
+### Optional: live diagnostic (`--corroborate-h-index`)
 
-```
-mktd02-verify --package receipt.json --reveal reveal.json
-```
-
-recomputes `TARGETS_COMMITMENT_V1` and confirms the revealed list is exactly the one the
-receipt committed to.
-
-### Optional: bind the receipt to an expected module (`--expect-module-hash`)
-
-The body's `h_index` is **not** itself a module hash. It is
-`SHA256(H_INDEX_TAG ‖ index_canister_id ‖ module_hash)` — the index
-canister's module hash, hash-bound into the receipt. So a module hash
-you already trust can be checked *against* the receipt, offline:
-
-```
-mktd02-verify --package receipt.json --expect-module-hash <64-hex>
-```
-
-This recomputes `h_index` from the hash you supplied and the body's own
-`index_canister_id`. If the result does not equal the body's `h_index`, the check **fails**,
-the verdict is **Reject**, and the process exits non-zero with the distinct reason
-`H_INDEX_MISMATCH`. No network is involved.
-
-Supply nothing and **no module hash is checked at all.** The report says exactly that, and a
-run without `--expect-module-hash` must never be read as having verified any hash.
-
-### Optional: live corroboration (`--corroborate-h-index`)
-
-This is a **different check from `--expect-module-hash` above**, answering a different
-question. While the index canister is live, `--corroborate-h-index` fetches the
-IC-certified `/canister/<id>/module_hash` via `read_state`.
-
-`--corroborate-h-index` checks the current live `module_hash` of the canister. This is live
-corroboration only; it may differ after upgrade and is **not proof of what code executed the
-deletion.**
-
-- **Alone, it verifies nothing.** It prints the live hash, labelled informational, and
-  compares it to nothing.
-- **With `--expect-module-hash`, it is required to match.** The live hash must equal the expected one.
-  `LIVE_MODULE_HASH_MISMATCH` or `LIVE_MODULE_HASH_UNAVAILABLE` rejects and exits non-zero
-  — the first when the live hash differs from the supplied expectation, the second when the
-  network is unreachable and the assertion you asked for cannot be made. It fails closed
-  rather than passing on silence.
-
-So a canister legitimately upgraded after the deletion will mismatch here while its receipts
-remain perfectly valid. That is why the receipt-binding claim is the offline
-`--expect-module-hash` comparison above, and why a live mismatch carries its own distinct reason.
-
-Deeper provenance (matching a module hash to a signed release record, rebuilding from
-source) is release-attested: until reproducible builds are relied on, do not describe the
-receipt as "independently verifiable from source."
+Fetches the Index's current `module_hash` via `read_state` and prints it in its own block. It is a
+**diagnostic only** and never enters validity: an Index legitimately upgraded after the deletion
+differs here while its receipts remain valid.
 
 ### What a CVDR does NOT prove
 
-- It does **not** certify the original user data or prove what PII existed before
-  deletion, and it does not establish which code ran. It establishes that a deletion
-  receipt naming the user canister was included in the index canister's certified state
-  at the certificate time. Where INDEX code-identity evidence is present, it attests the
-  identity of the deployed module at certification time.
-- It records which group/community targets were **captured and notified** — it does
-  **not** certify that each group completed member removal. Do not report
-  "groups confirmed erased."
-- `VerifiedFinal` / `LateFinalized` are **verifier** results. No live system honestly
-  claims them about itself.
+- It does **not** certify the original user data or prove what PII existed before deletion.
+  `h_user_pre` is an Index-recorded observation of the target canister's pre-uninstall module hash —
+  integrity-bound by the certified receipt relation, not independently attested.
+- It records which group/community targets were **captured and notified** — it does **not** certify
+  that each group completed member removal.
+- Absence of Index evidence proves nothing about the Index's code, in either direction.
+- The grade is a **verifier** result. No live system honestly claims it about itself.
 
 ### Schema compatibility
 
-CVDR-Verify treats the field names above as the **portable package contract**. Producers
-must serve the frozen package byte-for-byte; verifiers must not require live refetch or
-regeneration of any package component.
+CVDR-Verify treats the field names above as the **portable package contract**. Producers must serve
+the package byte-for-byte; verifiers must not require live refetch or regeneration of any component.
 
 ## Verifier's Guide — MKTd02 deletion receipts
 
@@ -244,8 +205,7 @@ attestation class (`subnet-attested` or `not-attested`), and every check as `PAS
 `FAIL <named error>` or `NOT_EVALUATED — <reason>`. It also lists the timing sub-results
 and what each passing check established. No line is a bare `PASS`.
 
-Exit codes (MKTd02 receipt mode): `0` PASS, `1` FAIL, `2` usage error (no verdict),
-`4` INCOMPLETE. OpenChatZD package mode keeps its own codes (`0`/`1`/`3`).
+Exit codes (both modes): `0` PASS, `1` FAIL, `2` usage error (no verdict), `4` INCOMPLETE.
 
 Example pending-receipt output (abbreviated):
 
@@ -304,10 +264,9 @@ See [capture provenance](tests/fixtures/v5/pocketic-11-p17/PROVENANCE.md).
 Run `./ci.sh` from this directory (or invoke it by path from elsewhere).
 It requires Python 3, the pinned Rust toolchain, and `cargo-audit`, with access
 to dependencies and the current advisory database. It runs formatting, Clippy
-with warnings denied, locked tests, audit, and explicit corpus acceptance.
-The unchanged OpenChatZD formatting and Clippy diagnostics are reported and
-accepted only on an exact fixed-baseline match; any changed diagnostic or count
-fails. Test failures and audit vulnerabilities fail. The four documented
+with warnings denied, locked tests, audit, and explicit corpus acceptance. Formatting
+and Clippy must be clean for the whole crate (the earlier fixed OpenChatZD baseline is
+retired). Test failures and audit vulnerabilities fail. The four documented
 maintenance warnings are permitted. Baseline details are recorded in
 [development notes](../../docs/dev/slice4_notes.md#12-exit-ruling-closure-16-sep-2026).
 

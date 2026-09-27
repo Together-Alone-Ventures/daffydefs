@@ -1,12 +1,28 @@
 [package]
 name = "mktd02-verify"
-# 0.8.0 DRAFT: mktd02-v5 retrofit (zombie-core 2237238; V1/V2/V3A/V3B, explicit
-# trust root, per-line validity). Untagged until released. Tracks the CVDR-Verify
-# release tag once tagged; v0.7.0 was the last tagged release.
+# 0.8.0: mktd02-v5 retrofit (zombie-core 2237238; V1/V2/V3A/V3B, explicit trust root,
+# per-line validity) + the OpenChatZD suite-v5 package verifier. Release number confirmed
+# 2026-09-22 (see RELEASES.md); UNTAGGED — the tag is minted once, at the final release commit,
+# with tag == crate version. The premature v0.7.0 tag was deleted; v0.6.1 is the last tagged release.
 version = "0.8.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Reference verifier for MKTd02 deletion receipts (mktd02-v5 and historical lines) and OpenChatZD packages"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "mktd02-verify"
+path = "src/main.rs"
+required-features = ["live"]
+
+[features]
+# The normal CLI retains receipt fetch and live diagnostics. WASM consumers use
+# `--no-default-features --features wasm` and receive the offline verifier only.
+default = ["live"]
+live = ["dep:reqwest", "dep:tokio", "ic-agent/pem"]
+wasm = ["dep:wasm-bindgen", "ic-agent/wasm-bindgen"]
 
 [dependencies]
 # Pinned by git URL + rev, never by path or branch.
@@ -16,12 +32,12 @@ description = "Reference verifier for MKTd02 deletion receipts (mktd02-v5 and hi
 # (DeletionReceiptV5, AnyDeletionReceipt, verify_v1, retired TAG_CERTIFIED) and
 # the countersigned v5 corpus (corpus commit 40ba6db). v2–v4 receipts decode as
 # the frozen DeletionReceiptV4.
-zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "223723885cfbb548d6b218aee8500b073fda4b58" }
-ic-agent = "=0.39.3"
+zombie-core = { git = "https://github.com/Together-Alone-Ventures/zombie-core", rev = "8ac64df5d0110ec7ebbbe8382b7a826dda17085a" }
+ic-agent = { version = "=0.39.3", default-features = false }
 candid = "=0.10.23"
 clap = { version = "=4.5.60", features = ["derive"] }
 hex = "=0.4.3"
-tokio = { version = "=1.49.0", features = ["full"] }
+tokio = { version = "=1.49.0", features = ["full"], optional = true }
 anyhow = "=1.0.103"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_bytes = "=0.11.19"
@@ -32,7 +48,8 @@ ic-verify-bls-signature = "=0.5.0"
 # Portable frozen-package artifact: byte fields accept hex or base64 (already
 # present in the lock as a transitive dep; pinned here for the OpenChatZD path).
 base64 = "=0.22.1"
-reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"], optional = true }
+wasm-bindgen = { version = "=0.2.113", optional = true }
 
 # Standalone DaffyDefs convenience-tool build boundary.
 [workspace]

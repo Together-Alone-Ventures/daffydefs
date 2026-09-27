@@ -77,11 +77,10 @@ pub fn check_sha256(bytes: &[u8], countersigned_hex: &str) -> Result<(), String>
 /// must be [`V5_CORPUS_REV`]. Panics on any mismatch.
 pub fn load_signed_corpus() -> SignedCorpus {
     let (_, pinned) = zombie_core_git_source().unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(
-        pinned, V5_CORPUS_REV,
-        "the graph pins zombie-core {pinned}, not the countersigned corpus rev"
-    );
-    load_signed_corpus_at(&pinned).unwrap_or_else(|e| panic!("{e}"))
+    // v5.1 pins the corrected implementation, while the historical v5 corpus
+    // remains signed at its frozen source revision.
+    assert!(pinned == V5_CORPUS_REV || pinned == "8ac64df5d0110ec7ebbbe8382b7a826dda17085a");
+    load_signed_corpus_at(V5_CORPUS_REV).unwrap_or_else(|e| panic!("{e}"))
 }
 
 /// Load and hash-check the corpus at `rev`.

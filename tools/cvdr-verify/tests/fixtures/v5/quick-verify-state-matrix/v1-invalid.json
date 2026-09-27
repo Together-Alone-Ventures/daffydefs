@@ -1,0 +1,16 @@
+{
+  "protocol_version": "mktd02-v5",
+  "receipt_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "canister_id": "wy6px-tibai-bqi",
+  "record_id": "0a0b0c",
+  "pre_state_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "post_state_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+  "tombstone_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "deletion_event_hash": "0f351b6bf4eb27e69a0b97afe8bee6c0c1925cb6176146bb4d6cddaa3b9b2618",
+  "module_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+  "timestamp": 1700000000000000000,
+  "deletion_seq": 7,
+  "bls_certificate": "aabbcc",
+  "trust_root_key_id": "test-key",
+  "module_hash_certificate": "ddee"
+}

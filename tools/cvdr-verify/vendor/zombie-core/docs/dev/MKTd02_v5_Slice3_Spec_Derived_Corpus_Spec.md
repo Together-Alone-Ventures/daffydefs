@@ -146,7 +146,7 @@ Countersignature is a **recorded human countersignature** — not a cryptographi
 | **6 — Clean-room rederivation** | C, in a **fresh session** | Input isolation is the evidence, not recollection. CC prepares an **inputs-only bundle**: the ratified formula text, and every gv5/nv5 JSON with `expected` **stripped**, plus a bundle manifest (file list + SHA-256). The clean-room session receives **only that bundle** — no repository, no Rust tests, no expected values, no CC notes, no prior implementation discussion. It derives every value from the text and reports: matches / mismatches / underivable, and records exactly what it received (the bundle manifest) as the isolation evidence. | **Hard gate.** Zero mismatches, zero underivable. Any underivable = the text is incomplete → back to phase 1 for that item. |
 | 7 — CD | CD | §7 checklist | CONFORMANT; the verified commit is `corpus_commit_sha` |
 | 8 — Countersign | Stef (+G) | Administrative commit adding the §4.8 block to `manifest.json`; nothing else changes; no tag | Corpus is normative |
-| 9 — Leaf re-pin | CC | One commit in Leaf pinning the **phase-8** zombie-core commit; suites green | Slice 3 closed |
+| 9 — Leaf re-pin | CC | One commit in Leaf pinning the **phase-8** zombie-core commit; suites green (amended 14 Sep 2026: Leaf phase 9 also adds test-only engine↔corpus checks for gv5-002 and gv5-011 that load the countersigned vectors via cargo metadata and hash-check them, plus byte-identical pure extractions of the engine's tombstone-hash and state-hash constructions; no construction, wire or vector change) | Slice 3 closed |
 
 ## 6. Rules CC must follow
 
@@ -189,7 +189,7 @@ Each item PASS / FAIL / NOT VERIFIABLE with file:line evidence. CD reads §1–�
 
 **Hygiene and scope**
 17. fmt / clippy `-D warnings` / audit clean; no new crates; no change to any construction, tag, preimage, wire shape or named error (diff `src/` against `8fa8f91`: tests and the loader only).
-18. No CVDR-Verify, DaffyDefs or Leaf code change; Leaf touched only by the phase-9 re-pin commit.
+18. No CVDR-Verify, DaffyDefs or Leaf code change; Leaf touched only by the phase-9 re-pin commit. (amended 14 Sep 2026: Leaf phase 9 also adds test-only engine↔corpus checks for gv5-002 and gv5-011 that load the countersigned vectors via cargo metadata and hash-check them, plus byte-identical pure extractions of the engine's tombstone-hash and state-hash constructions; no construction, wire or vector change)
 19. nv5-011a/b/c exist as three explicit cases (v2, v3, v4 labels), each asserting acceptance.
 20. *(post-countersignature check, run at phase 9)* The vector files at the phase-8 commit are byte-identical to those at `corpus_commit_sha`; the phase-8 commit changes `manifest.json` only; Leaf pins the phase-8 commit.
 
