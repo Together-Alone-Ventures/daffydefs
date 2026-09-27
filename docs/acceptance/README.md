@@ -1,8 +1,14 @@
 # DaffyDefs — Acceptance Evidence
 
-## Current acceptance — 16 September 2026
+## Current acceptance — 27 September 2026 (mktd02-v5.1)
 
-See the [ceremony record](ceremony-2026-09-16.md) and [current release identity](../../RELEASES.md). The dated records below describe earlier tools and releases.
+See the [v5.1 ceremony record](ceremony-2026-09-27-v5.1.md) and [current release identity](../../RELEASES.md). Verifier outputs and the mutation matrix are under [`v5.1/`](v5.1/).
+
+## Historical acceptance — 16 September 2026 (mktd02-v5)
+
+See the [ceremony record](ceremony-2026-09-16.md). Receipt `90347766…` is a historical `mktd02-v5` receipt. It remains verifiable under the frozen `MKTD02_EVENT_V2` construction and is no longer the canonical demonstration receipt.
+
+The dated records below describe earlier tools and releases.
 
 ## Historical demo release acceptance — 15 Aug 2026
 

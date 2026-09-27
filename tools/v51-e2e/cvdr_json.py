@@ -75,10 +75,17 @@ def local_root_pem():
     return f"-----BEGIN PUBLIC KEY-----\n{body}\n-----END PUBLIC KEY-----\n"
 
 
-def verify(verifier, receipt_path, pem_path):
+def root_args(pem_path=None, trust_root=None):
+    """Verifier trust-root arguments: a PEM file or a built-in root id."""
+    if (pem_path is None) == (trust_root is None):
+        raise ValueError("exactly one of pem_path / trust_root is required")
+    return ["--trust-root-pem", pem_path] if pem_path else ["--trust-root", trust_root]
+
+
+def verify(verifier, receipt_path, pem_path=None, trust_root=None):
     """Run mktd02-verify --json and return the parsed facts."""
     proc = subprocess.run(
-        [verifier, "--receipt-file", receipt_path, "--trust-root-pem", pem_path, "--json"],
+        [verifier, "--receipt-file", receipt_path, *root_args(pem_path, trust_root), "--json"],
         capture_output=True, text=True,
     )
     try:

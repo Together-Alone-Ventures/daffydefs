@@ -7,6 +7,7 @@ the verifier's result is compared against that.
 
 Usage:
   mutate_receipt.py --receipt receipt.json --root-pem local_root.pem [--verifier ...]
+  mutate_receipt.py --receipt receipt.json --trust-root mainnet [--verifier ...]
 """
 
 import argparse
@@ -54,7 +55,9 @@ MATRIX = {
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--receipt", required=True)
-    ap.add_argument("--root-pem", required=True)
+    root = ap.add_mutually_exclusive_group(required=True)
+    root.add_argument("--root-pem", help="trust root PEM (e.g. a local replica root)")
+    root.add_argument("--trust-root", help="built-in trust root id (e.g. mainnet)")
     ap.add_argument("--verifier", default=DEFAULT_VERIFIER)
     ap.add_argument("--out", help="write the matrix result as JSON here")
     a = ap.parse_args()
@@ -62,7 +65,7 @@ def main():
     with open(a.receipt) as f:
         base = json.load(f)
 
-    baseline = verify(a.verifier, a.receipt, a.root_pem)
+    baseline = verify(a.verifier, a.receipt, a.root_pem, a.trust_root)
     if failing_checks(baseline) or baseline["validity"]["validity"] != "PASS":
         print(f"baseline receipt does not PASS: {failing_checks(baseline)}")
         return 1
@@ -76,7 +79,7 @@ def main():
             path = os.path.join(tmp, f"{field}.json")
             with open(path, "w") as f:
                 json.dump(mutated, f, indent=2)
-            facts = verify(a.verifier, path, a.root_pem)
+            facts = verify(a.verifier, path, a.root_pem, a.trust_root)
             failed = failing_checks(facts)
             intake = facts.get("intake_error")
             validity = (facts.get("validity") or {}).get("validity")

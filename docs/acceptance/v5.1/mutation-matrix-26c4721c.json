@@ -1,0 +1,235 @@
+[
+  {
+    "field": "receipt_id",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "receipt_id recomputation mismatches"
+  },
+  {
+    "field": "record_id",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "receipt_id recomputed from record_id mismatches"
+  },
+  {
+    "field": "canister_id",
+    "must_fail": [
+      "V1",
+      "V2",
+      "V3A"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1",
+      "V2",
+      "V3A"
+    ],
+    "still_passing": [],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "receipt_id binds canister_id; both certificates are read under canister_id"
+  },
+  {
+    "field": "deletion_seq",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "receipt_id and EVENT_V3 bind deletion_seq"
+  },
+  {
+    "field": "timestamp",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "EVENT_V3 binds timestamp"
+  },
+  {
+    "field": "pre_state_hash",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "EVENT_V3 binds pre_state_hash"
+  },
+  {
+    "field": "post_state_hash",
+    "must_fail": [
+      "V1"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V1"
+    ],
+    "still_passing": [
+      "V2",
+      "V3A"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "EVENT_V3 binds post_state_hash"
+  },
+  {
+    "field": "deletion_event_hash",
+    "must_fail": [
+      "V1",
+      "V2"
+    ],
+    "may_fail": [
+      "V3A"
+    ],
+    "failed": [
+      "V1",
+      "V2",
+      "V3A"
+    ],
+    "still_passing": [],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "recomputed and certified value both differ; V3A's BLS-pair check also binds it"
+  },
+  {
+    "field": "tombstone_hash",
+    "must_fail": [],
+    "may_fail": [],
+    "failed": [],
+    "still_passing": [
+      "V1",
+      "V2",
+      "V3A"
+    ],
+    "validity": "PASS",
+    "intake_error": null,
+    "ok": true,
+    "why": "diagnostic only; not in the verification chain"
+  },
+  {
+    "field": "module_hash",
+    "must_fail": [
+      "V3A"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V3A"
+    ],
+    "still_passing": [
+      "V1",
+      "V2"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "not an EVENT_V3 operand; V3A compares the certified leaf"
+  },
+  {
+    "field": "trust_root_key_id",
+    "must_fail": [],
+    "may_fail": [],
+    "failed": [],
+    "still_passing": [
+      "V1",
+      "V2",
+      "V3A"
+    ],
+    "validity": "PASS",
+    "intake_error": null,
+    "ok": true,
+    "why": "label only; never selects the root; mismatch reported, non-gating"
+  },
+  {
+    "field": "bls_certificate",
+    "must_fail": [
+      "V2"
+    ],
+    "may_fail": [
+      "V3A"
+    ],
+    "failed": [
+      "V2",
+      "V3A"
+    ],
+    "still_passing": [
+      "V1"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "certificate signature no longer verifies; V3A uses it for time ordering"
+  },
+  {
+    "field": "module_hash_certificate",
+    "must_fail": [
+      "V3A"
+    ],
+    "may_fail": [],
+    "failed": [
+      "V3A"
+    ],
+    "still_passing": [
+      "V1",
+      "V2"
+    ],
+    "validity": "FAIL",
+    "intake_error": null,
+    "ok": true,
+    "why": "module-hash certificate signature no longer verifies"
+  }
+]

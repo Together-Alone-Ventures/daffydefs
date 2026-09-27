@@ -1,0 +1,63 @@
+{
+  "source": "file:docs/acceptance/receipts/deletion-receipt-26c4721c.json",
+  "protocol_version": "mktd02-v5.1",
+  "protocol_line": "V51",
+  "historical": false,
+  "receipt_id": "26c4721ce54ca65cd9940b371c9fcae040f96b23020bd3c00c994d85934bad12",
+  "canister_id": "ju7jm-caaaa-aaaaj-qshsq-cai",
+  "receipt_state": "FinalizedCandidate",
+  "intake_error": null,
+  "trust_root_used": {
+    "id": "mainnet",
+    "source": "built-in"
+  },
+  "receipt_trust_root_key_id": "mainnet",
+  "trust_root_mismatch": null,
+  "attestation_class": "subnet-attested",
+  "checks": {
+    "v1": {
+      "outcome": "pass",
+      "established": "receipt_id and deletion_event_hash recomputed (normative mktd02-v5.1 V1)"
+    },
+    "v2": {
+      "outcome": "pass",
+      "established": "embedded certificate chains to trust root mainnet and the subnet-certified certified_data of canister ju7jm-caaaa-aaaaj-qshsq-cai equals the receipt's deletion_event_hash"
+    },
+    "v3a": {
+      "outcome": "pass",
+      "established": "subnet certificate attests module hash a196de1dcbe13b6d7d84470aaaa8be236935de5db8503418777bae1f7a1a01d9 on canister ju7jm-caaaa-aaaaj-qshsq-cai at certificate time 1790476179549256626 ns — the identity of the deployed module at certification time"
+    },
+    "v3b": {
+      "outcome": "not_evaluated",
+      "reason": "no build provenance supplied (--wasm-hash)"
+    }
+  },
+  "timing": [
+    {
+      "kind": "v2_certificate_time",
+      "certificate_time_ns": 1790476178696023387,
+      "receipt_timestamp_ns": 1790476177398738620,
+      "delta_secs": 1.297284767,
+      "warn_threshold_secs": 300,
+      "exceeds_warning_threshold": false
+    },
+    {
+      "kind": "v3a_finalization_delay",
+      "bls_certificate_time_ns": 1790476178696023387,
+      "module_hash_certificate_time_ns": 1790476179549256626,
+      "delta_secs": 0.853233239,
+      "max_finalization_delay_secs": 3600,
+      "verdict": "ROUTINE"
+    }
+  ],
+  "evidence_established": [
+    "V1: receipt_id and deletion_event_hash recomputed (normative mktd02-v5.1 V1)",
+    "V2: embedded certificate chains to trust root mainnet and the subnet-certified certified_data of canister ju7jm-caaaa-aaaaj-qshsq-cai equals the receipt's deletion_event_hash",
+    "V3A: subnet certificate attests module hash a196de1dcbe13b6d7d84470aaaa8be236935de5db8503418777bae1f7a1a01d9 on canister ju7jm-caaaa-aaaaj-qshsq-cai at certificate time 1790476179549256626 ns — the identity of the deployed module at certification time"
+  ],
+  "validity": {
+    "validity": "PASS",
+    "reason": null
+  },
+  "diagnostics": null
+}

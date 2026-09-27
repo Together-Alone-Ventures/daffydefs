@@ -17,23 +17,29 @@ The reference verifier evaluates the applicable V1, V2 and V3A validity axes. V3
 ## Current live demo release
 
 - Live frontend: `https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/`
-- Product/build provenance anchor: `e2b073971aae5f1c97edee59875bec15628821c7`
+- Protocol version: `mktd02-v5.1`
+- Product/build provenance anchor: `84617bac4b00c9ec65a914c30eda74e73415680d` (branch `v5.1`)
 - Released post-shrink profile-WASM SHA-256:
-  `30496752f6da4e2badf1cc50f6ac1a23cb567d08d4225038c0fa4b8a539dddeb`
+  `a196de1dcbe13b6d7d84470aaaa8be236935de5db8503418777bae1f7a1a01d9`
 - Live factory module hash:
-  `b476a41de6c36556262282f9e93aa9e35e2957b5cd2a953dddf32651f9fc001e`
+  `7eaa25e334c51f8cfba041ae8708147743d4f20b06d966ae2824ee4373f6a461`
 - Fresh acceptance profile:
-  `petd6-ciaaa-aaaaj-qshha-cai`
+  `ju7jm-caaaa-aaaaj-qshsq-cai`
 - Fresh acceptance receipt:
-  `90347766510e664818831810d7c53091936192dae63db48bb194b96e00006149`
+  `26c4721ce54ca65cd9940b371c9fcae040f96b23020bd3c00c994d85934bad12`
 - Banked exact JSON:
-  `docs/acceptance/receipts/deletion-receipt-90347766.json`
+  `docs/acceptance/receipts/deletion-receipt-26c4721c.json`
 - Banked JSON SHA-256:
-  `1a12152b8869814ddd80ef11234864211fa7f5119e0b7eebf4e9e46d8a6b62d1`
+  `e845e49ab4bae2488ca7da5f78243d29bd085ac9242e838183a1a7c632897051`
 - Packaged Linux reference-verifier SHA-256:
-  `b47e442b0f76331a14ff09bc70bd9f50682a635ebf2dfda90f15e4ed6b322a2c`
+  `6460032695b1f9b8f31d6a435fcf46ebe883a5f1c67013af1a2f3915663c9f6b`
 
-The 16 Sep 2026 untouched browser receipt passed V1 / V2 / V3A and overall validity under both the packaged verifier and a fresh verifier built from `560e483b047209ee83463dfab29da07acb422feb` (0.8.0 DRAFT, no release tag). V3B was not evaluated in those invocations; it is supplementary/non-gating build provenance. The canonical, deployed and receipt-attested profile hashes match. The canonical recipe reproduced that profile hash during this capsule freeze.
+The 27 Sep 2026 untouched browser receipt passed V1 / V2 / V3A and overall validity. It was checked with both the packaged verifier (CVDR-Verify `67cbe4bf3878a1853a1839dfe96a76281ce3feea`) and a fresh build of CVDR-Verify `170c958cca9342ca3937c06f97edc0912de11dec`.
+- V3B was not evaluated in those invocations; it is supplementary/non-gating build provenance.
+- The canonical, deployed and receipt-attested profile hashes match.
+- Two clean runs of the canonical container recipe reproduced that profile hash.
+
+The earlier 16 Sep 2026 receipt `90347766…` is a historical `mktd02-v5` receipt (see [its record](docs/acceptance/ceremony-2026-09-16.md)).
 
 Start with [the self-contained Demo Pack](docs/DEMO_PACK.md). The [current release record](RELEASES.md) and [verification procedure](docs/VERIFICATION_PROCEDURE.md) define the published identity and V3B comparison. Byte-exact reproducibility applies only to profile-canister WASM; no reproduction on physically distinct hardware is claimed.
 
