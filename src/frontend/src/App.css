@@ -499,3 +499,27 @@ body {
 @keyframes finalization-spin {
   to { transform: rotate(360deg); }
 }
+
+.quick-verify .hash-value,
+.quick-verify .field-value {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.verify-results {
+  display: grid;
+  gap: 0.7rem;
+  padding-left: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 600px) {
+  html, body { overflow-x: hidden; }
+  .app { width: 100%; padding: 1rem 0.75rem; }
+  .quick-verify .card { padding: 1rem; }
+  .quick-verify input[type="file"],
+  .quick-verify textarea,
+  .quick-verify .button { display: block; width: 100%; }
+  .quick-verify input[type="file"] { margin: 1rem 0; }
+  .quick-verify textarea { margin-bottom: 1rem; }
+}
