@@ -48,7 +48,13 @@ a196de1dcbe13b6d7d84470aaaa8be236935de5db8503418777bae1f7a1a01d9
 
 This is also the current profile hash in [RELEASES.md](../RELEASES.md); the [canonical verification procedure](VERIFICATION_PROCEDURE.md) defines the technical checks. Compare it directly with `module_hash` in your receipt. Equality binds the receipt's attested code identity to this accepted profile build. No separate live-module lookup is needed for this walkthrough.
 
-## 3. Optional V3B: rebuild the profile WASM
+## 3. Quick Verify in the browser
+
+Open [Quick Verify](https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/verify), choose the downloaded JSON or paste it, and select **Verify locally**. The page sends no receipt data to a server. It displays V1, V2, V3A, overall validity, the locally selected trust root, and any informational receipt-label mismatch. V3B is explicitly not run.
+
+Browser verifier source: DaffyDefs `1ff2149`; WASM SHA-256: `d925b72cebf781d212e0199ef47b64dfddef2b8880ccd3c25fb021d9e607c50f`.
+
+## 4. Optional V3B: rebuild the profile WASM
 
 Only the final post-`ic-wasm shrink` **profile-canister WASM** is a byte-exact reproducibility target. Factory, frontend and verifier binaries are outside that claim.
 

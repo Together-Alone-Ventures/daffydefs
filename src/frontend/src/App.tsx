@@ -25,6 +25,7 @@ import FinalizationProgress from "./components/FinalizationProgress";
 import DeletionReceipt from "./components/DeletionReceipt";
 import { CvdrData } from "./components/DeletionReceipt";
 import "./App.css";
+import QuickVerify from "./components/QuickVerify";
 
 // ============================================================
 // App state types
@@ -74,6 +75,7 @@ function statusForStage(stage: FinalizeStage): FinalizationStatus {
 // ============================================================
 
 function App() {
+  if (window.location.pathname === "/verify") return <QuickVerify />;
   const [authClient, setAuthClient] = useState<AuthClient | null>(null);
   const [agent, setAgent] = useState<HttpAgent | null>(null);
   const [principal, setPrincipal] = useState<string | null>(null);
