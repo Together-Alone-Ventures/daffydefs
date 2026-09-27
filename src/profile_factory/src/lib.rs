@@ -15,6 +15,12 @@
 //   Factory is controller of all created profile canisters.
 //   Users are authorized at the application level.
 //
+// DD2 (docs/rulings/2026-09-27-dd2-non-identifying-record-id.md):
+//   Each new profile canister receives 32 bytes of raw_rand as its record_id
+//   init argument. The factory never stores or logs it.
+//   resolve(principal) is limited to the caller's own principal, or any
+//   principal for factory controllers.
+//
 // Schema version lifecycle:
 //   init:         write v1
 //   post_upgrade: 0 → v1; v1 → ok; else → trap
@@ -23,7 +29,7 @@ use candid::{CandidType, Principal};
 use sha2::{Sha256, Digest};
 use serde::Deserialize;
 use ic_cdk::api::management_canister::main::{
-    canister_status, create_canister, delete_canister, install_code, stop_canister,
+    canister_status, create_canister, delete_canister, install_code, raw_rand, stop_canister,
     CanisterIdRecord, CanisterInstallMode, CanisterSettings, CreateCanisterArgument,
     InstallCodeArgument,
 };
@@ -158,9 +164,17 @@ fn require_authenticated() -> Result<Principal, DaffyError> {
 
 /// Resolve a principal to its profile canister ID.
 /// Returns ProfileNotFound for both never-existed and deleted principals.
+///
+/// DD2: an ordinary caller may resolve only its own principal; factory
+/// controllers may resolve any principal. Anonymous callers are denied.
 #[ic_cdk::query]
 fn resolve(principal: Principal) -> Result<Principal, DaffyError> {
-    let _caller = require_authenticated()?;
+    let caller = require_authenticated()?;
+    if caller != principal && !ic_cdk::api::is_controller(&caller) {
+        return Err(DaffyError::NotAuthorized {
+            message: "Callers may resolve only their own principal".into(),
+        });
+    }
     let storable_principal = StorablePrincipal::new(principal);
 
     let canister_id = PROFILE_MAP.with(|pm| pm.borrow().get(&storable_principal));
@@ -207,6 +221,22 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
         });
     }
 
+    // DD2: fresh random record_id, obtained before the canister is created so a
+    // failure leaves nothing behind. Passed only in the init argument; never
+    // stored or logged here.
+    let (record_id,) = raw_rand().await.map_err(|e| {
+        log_error!("raw_rand failed: {:?}", e);
+        DaffyError::CanisterCallFailed {
+            message: format!("Failed to obtain randomness for record_id: {:?}", e),
+        }
+    })?;
+    if record_id.len() != 32 {
+        log_error!("raw_rand returned {} bytes, expected 32", record_id.len());
+        return Err(DaffyError::CanisterCallFailed {
+            message: "Failed to obtain a 32-byte record_id".into(),
+        });
+    }
+
     let create_result = create_canister(
         CreateCanisterArgument {
             settings: Some(CanisterSettings {
@@ -233,7 +263,7 @@ async fn get_or_create_profile_canister() -> Result<Principal, DaffyError> {
 
     let module_hash_bytes = Sha256::digest(PROFILE_CANISTER_WASM);
     let module_hash_hex: Option<String> = Some(hex::encode(&module_hash_bytes));
-    let init_arg = candid::encode_args((&caller, &module_hash_hex)).map_err(|e| {
+    let init_arg = candid::encode_args((&caller, &module_hash_hex, &record_id)).map_err(|e| {
         log_error!("Failed to encode init arg: {:?}", e);
         DaffyError::CanisterCallFailed {
             message: format!("Failed to encode init argument: {:?}", e),

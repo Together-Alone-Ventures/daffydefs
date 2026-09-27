@@ -185,7 +185,7 @@ export default function DeletionReceipt({
         <div className="profile-field">
           <span className="field-label">Module Hash</span>
           <span className="field-value mono" style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>
-            {receipt.module_hash}
+            {receipt.module_hash ?? "Set at finalization"}
           </span>
         </div>
 
@@ -197,7 +197,7 @@ export default function DeletionReceipt({
         <div className="profile-field">
           <span className="field-label">Trust Root Key ID</span>
           <span className="field-value mono" style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>
-            {receipt.trust_root_key_id}
+            {receipt.trust_root_key_id ?? "Set at finalization"}
           </span>
         </div>
 

@@ -51,11 +51,12 @@ export const idlFactory = ({ IDL }: { IDL: any }) => {
     tombstone_hash: IDL.Text,
     deletion_event_hash: IDL.Text,
     certified_commitment: IDL.Opt(IDL.Text),
-    module_hash: IDL.Text,
+    // DD2: optional so a pending mktd02-v5.1 receipt may omit them.
+    module_hash: IDL.Opt(IDL.Text),
     timestamp: IDL.Nat64,
     deletion_seq: IDL.Nat64,
     bls_certificate: IDL.Opt(IDL.Vec(IDL.Nat8)),
-    trust_root_key_id: IDL.Text,
+    trust_root_key_id: IDL.Opt(IDL.Text),
     module_hash_certificate: IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
 

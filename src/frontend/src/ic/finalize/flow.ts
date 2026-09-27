@@ -36,7 +36,7 @@ import {
   guardPermitsFinalize,
   type GuardReport,
 } from "./guard";
-import { isReceiptFinalized, mapReceiptToCvdr, type CvdrData } from "./cvdr";
+import { isReceiptFinalized, mapReceiptToCvdr, unwrapOptText, type CvdrData } from "./cvdr";
 
 export type FinalizeStage =
   | "idle"
@@ -316,7 +316,19 @@ async function runFinalize(params: FinalizeParams): Promise<FinalizeOutcome> {
       };
     }
 
-    const expectedModuleHash = fromHex(receipt.module_hash);
+    // A pending mktd02-v5.1 receipt carries no module_hash; this client guard
+    // has no expected value to compare against, so it stops explicitly.
+    const pendingModuleHash = unwrapOptText(receipt.module_hash);
+    if (pendingModuleHash === undefined) {
+      stage("failed");
+      return {
+        status: "failed",
+        receipt: mapReceiptToCvdr(receipt),
+        guard: null,
+        error: "pending receipt carries no module_hash; this client cannot guard its finalisation",
+      };
+    }
+    const expectedModuleHash = fromHex(pendingModuleHash);
     const expectedCertifiedData = fromHex(receiptCertifiedData(receipt));
 
     // --- 3. Anonymous read_state for the module hash -----------------------

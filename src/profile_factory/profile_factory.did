@@ -46,6 +46,9 @@ service : () -> {
   list_all_profiles : () -> (Result_3) query;
   // Resolve a principal to its profile canister ID.
   // Returns ProfileNotFound for both never-existed and deleted principals.
+  // 
+  // DD2: an ordinary caller may resolve only its own principal; factory
+  // controllers may resolve any principal. Anonymous callers are denied.
   resolve : (principal) -> (Result_2) query;
   // Remove the mapping for a deleted (tombstoned) profile canister.
   // The old canister is NOT destroyed — its CVDR remains queryable.

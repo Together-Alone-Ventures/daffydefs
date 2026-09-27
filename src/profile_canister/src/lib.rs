@@ -8,7 +8,14 @@
 // Memory layout (frozen — do not reorder or reuse):
 //   MemoryId(0)       = schema version (StableCell<u64>)
 //   MemoryId(1)       = profile data (StableCell<StoredProfile>)
+//   MemoryId(2)       = DD2 record_id (StableCell<Vec<u8>>; 32 random bytes,
+//                       empty for profiles created before DD2)
 //   MemoryId(100–107) = MKTd02 stable memory slots
+//
+// DD2 record identity (docs/rulings/2026-09-27-dd2-non-identifying-record-id.md):
+//   The factory passes 32 bytes of raw_rand as an init argument. They are
+//   stored once, never logged, never regenerated, and used as the public CVDR
+//   record_id instead of the owner's Internet Identity principal.
 //
 // Access control:
 //   get_display_name()  — public (any caller)
@@ -22,7 +29,7 @@
 //   mktd02::on_post_upgrade() called in #[post_upgrade]
 //   v5 computes state hashes at deletion; ordinary writes do not change certified_data.
 //   A→B→C flow mapping:
-//     Phase A: mktd02::execute_deletion() in delete_profile()
+//     Phase A: mktd02::execute_deletion_with_record_id() in delete_profile()
 //     Phase B: mktd02::get_pending_certificate() in mktd_get_certificate()
 //     Phase C: mktd02::finalize_receipt() in mktd_finalize_receipt()
 //
@@ -141,6 +148,9 @@ pub struct MktdTombstoneStatus {
 ///
 /// v0.2.0: Added protocol_version, bls_certificate, trust_root_key_id.
 ///         Removed commit_mode, manifest_hash.
+/// DD2: module_hash and trust_root_key_id are optional so a pending mktd02-v5.1
+///      receipt can omit them. Historical v4/v5 receipts always return Some,
+///      with their stored values unchanged.
 #[derive(Debug, Clone, CandidType, Serialize, Deserialize)]
 pub struct MktdReceiptResponse {
     pub protocol_version: String,
@@ -152,11 +162,11 @@ pub struct MktdReceiptResponse {
     pub tombstone_hash: String,
     pub deletion_event_hash: String,
     pub certified_commitment: Option<String>,
-    pub module_hash: String,
+    pub module_hash: Option<String>,
     pub timestamp: u64,
     pub deletion_seq: u64,
     pub bls_certificate: Option<Vec<u8>>,
-    pub trust_root_key_id: String,
+    pub trust_root_key_id: Option<String>,
     pub module_hash_certificate: Option<Vec<u8>>,
 }
 
@@ -193,7 +203,18 @@ thread_local! {
             StoredProfile::default(),
         )
     );
+
+    // DD2 record_id. Empty means the profile predates DD2 and has none.
+    static RECORD_ID: RefCell<StableCell<Vec<u8>, Memory>> = RefCell::new(
+        StableCell::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(2))),
+            Vec::new(),
+        )
+    );
 }
+
+/// DD2 record_id length: 32 bytes of raw_rand, supplied by the factory.
+const RECORD_ID_LEN: usize = 32;
 
 // ============================================================
 // MKTd02 Integration: Adapter + Guard
@@ -367,9 +388,21 @@ fn decode_receipt_id(hex_str: &str) -> Result<[u8; 32], DaffyError> {
 // ============================================================
 
 /// Called when the canister is first created.
-/// The factory passes the owner principal as the init argument.
+/// The factory passes the owner principal, the module hash, and the DD2
+/// record_id (32 random bytes) as init arguments. The record_id is never logged.
 #[ic_cdk::init]
-fn init(owner: Principal, module_hash_hex: Option<String>) {
+fn init(owner: Principal, module_hash_hex: Option<String>, record_id: Vec<u8>) {
+    if record_id.len() != RECORD_ID_LEN {
+        ic_cdk::trap(&format!(
+            "record_id must be {} bytes, got {} bytes",
+            RECORD_ID_LEN,
+            record_id.len()
+        ));
+    }
+    RECORD_ID.with(|r| {
+        r.borrow_mut().set(record_id);
+    });
+
     // Write schema version
     SCHEMA_VERSION.with(|v| {
         v.borrow_mut().set(SCHEMA_VERSION_V1);
@@ -590,6 +623,16 @@ fn delete_profile() -> Result<String, DaffyError> {
         Ok(())
     })?;
 
+    // DD2: the public CVDR record_id is the stored random id, never the
+    // owner's principal. A profile created before DD2 has none; it fails
+    // closed rather than falling back to the principal.
+    let record_id = RECORD_ID.with(|r| r.borrow().get().clone());
+    if record_id.len() != RECORD_ID_LEN {
+        return Err(DaffyError::CanisterCallFailed {
+            message: "Profile has no DD2 record_id (created before DD2); deletion is not available on this profile".into(),
+        });
+    }
+
     // Execute deletion via MKTd02 (Phase A) — this handles:
     // - Pre-state hash capture
     // - Tombstoning all PII fields (via adapter)
@@ -601,7 +644,7 @@ fn delete_profile() -> Result<String, DaffyError> {
     // - Finalization lock acquisition
     // - Receipt generation and storage (pending — no BLS cert yet)
     let mut adapter = ProfileAdapter;
-    let receipt_id = mktd02::execute_deletion(&mut adapter, &mktd_config())
+    let receipt_id = mktd02::execute_deletion_with_record_id(&mut adapter, &mktd_config(), record_id)
         .map_err(|e| match e {
             mktd02::DeletionError::AlreadyTombstoned => DaffyError::ProfileDeleted {
                 message: "Profile is already deleted".into(),
@@ -662,11 +705,11 @@ fn receipt_response(receipt: zombie_core::AnyDeletionReceipt) -> MktdReceiptResp
             post_state_hash: hex::encode(r.post_state_hash),
             tombstone_hash: hex::encode(r.tombstone_hash),
             deletion_event_hash: hex::encode(r.deletion_event_hash),
-            module_hash: hex::encode(r.module_hash),
+            module_hash: Some(hex::encode(r.module_hash)),
             timestamp: r.timestamp,
             deletion_seq: r.deletion_seq,
             bls_certificate: r.bls_certificate,
-            trust_root_key_id: r.trust_root_key_id,
+            trust_root_key_id: Some(r.trust_root_key_id),
             module_hash_certificate: r.module_hash_certificate,
             certified_commitment: Some(hex::encode(r.certified_commitment)),
         },
@@ -679,11 +722,11 @@ fn receipt_response(receipt: zombie_core::AnyDeletionReceipt) -> MktdReceiptResp
             post_state_hash: hex::encode(r.post_state_hash),
             tombstone_hash: hex::encode(r.tombstone_hash),
             deletion_event_hash: hex::encode(r.deletion_event_hash),
-            module_hash: hex::encode(r.module_hash),
+            module_hash: Some(hex::encode(r.module_hash)),
             timestamp: r.timestamp,
             deletion_seq: r.deletion_seq,
             bls_certificate: r.bls_certificate,
-            trust_root_key_id: r.trust_root_key_id,
+            trust_root_key_id: Some(r.trust_root_key_id),
             module_hash_certificate: r.module_hash_certificate,
             certified_commitment: None,
         },

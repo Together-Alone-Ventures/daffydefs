@@ -18,10 +18,10 @@ type MktdReceiptResponse = record {
   receipt_id : text;
   canister_id : principal;
   post_state_hash : text;
-  trust_root_key_id : text;
+  trust_root_key_id : opt text;
   deletion_event_hash : text;
   timestamp : nat64;
-  module_hash : text;
+  module_hash : opt text;
   tombstone_hash : text;
   deletion_seq : nat64;
   pre_state_hash : text;
@@ -48,7 +48,7 @@ type ProfileInput = record {
 };
 type Result = variant { Ok : text; Err : DaffyError };
 type Result_1 = variant { Ok : ProfileInfo; Err : DaffyError };
-service : (principal, opt text) -> {
+service : (principal, opt text, blob) -> {
   // PROFILE OWNER ONLY — Phase A: tombstone profile fields and create a pending CVDR.
   // 
   // Returns receipt_id as hex text. The stored receipt remains pending

@@ -10,11 +10,13 @@ export interface CvdrData {
   tombstone_hash: string;
   deletion_event_hash: string;
   certified_commitment?: string;
-  module_hash: string;
+  /** Absent on a pending mktd02-v5.1 receipt (set at finalisation). */
+  module_hash?: string;
   timestamp: bigint;
   deletion_seq: bigint;
   bls_certificate?: Array<number> | Uint8Array | null;
-  trust_root_key_id: string;
+  /** Absent on a pending mktd02-v5.1 receipt (set at finalisation). */
+  trust_root_key_id?: string;
   module_hash_certificate?: Array<number> | Uint8Array | null;
 }
 
@@ -44,6 +46,19 @@ function unwrapOptBytes(value: unknown): Uint8Array | Array<number> | null {
 }
 
 /**
+ * Unwrap a Candid `opt text`, which agent-js decodes as `[] | [string]`.
+ * Also accepts a plain string (pre-DD2 `text` responses). Returns undefined
+ * when absent.
+ */
+export function unwrapOptText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") {
+    return value[0];
+  }
+  return undefined;
+}
+
+/**
  * Map a raw `mktd_get_receipt` response onto CvdrData. All 15 fields, including
  * both certificate blobs.
  */
@@ -60,11 +75,11 @@ export function mapReceiptToCvdr(r: any): CvdrData {
     tombstone_hash: r.tombstone_hash,
     deletion_event_hash: r.deletion_event_hash,
     ...(historicalCommitment(r) === undefined ? {} : { certified_commitment: historicalCommitment(r) }),
-    module_hash: r.module_hash,
+    module_hash: unwrapOptText(r.module_hash),
     timestamp: r.timestamp,
     deletion_seq: r.deletion_seq,
     bls_certificate: unwrapOptBytes(r.bls_certificate),
-    trust_root_key_id: r.trust_root_key_id,
+    trust_root_key_id: unwrapOptText(r.trust_root_key_id),
     module_hash_certificate: unwrapOptBytes(r.module_hash_certificate),
   };
 }
@@ -74,12 +89,13 @@ export function isReceiptFinalized(r: any): boolean {
   if (!r) return false;
   const bls = unwrapOptBytes(r.bls_certificate);
   const module = unwrapOptBytes(r.module_hash_certificate);
+  const trustRoot = unwrapOptText(r.trust_root_key_id);
   return !!(
     bls &&
     (bls as { length: number }).length > 0 &&
     module && module.length > 0 &&
-    r.trust_root_key_id &&
-    String(r.trust_root_key_id).length > 0
+    trustRoot &&
+    trustRoot.length > 0
   );
 }
 
@@ -93,11 +109,11 @@ export interface CvdrExport {
   tombstone_hash: string;
   deletion_event_hash: string;
   certified_commitment?: string;
-  module_hash: string;
+  module_hash?: string;
   timestamp: string | bigint;
   deletion_seq: string | bigint;
   bls_certificate: string | null;
-  trust_root_key_id: string;
+  trust_root_key_id?: string;
   module_hash_certificate: string | null;
 }
 
@@ -121,11 +137,13 @@ export function buildCvdrExport(receipt: CvdrData): CvdrExport {
     tombstone_hash: receipt.tombstone_hash,
     deletion_event_hash: receipt.deletion_event_hash,
     ...(receipt.protocol_version === "mktd02-v5" ? {} : { certified_commitment: receipt.certified_commitment }),
-    module_hash: receipt.module_hash,
+    // Absent fields are omitted, never replaced by a placeholder. Historical
+    // v4/v5 receipts always carry both, so their export is unchanged.
+    ...(receipt.module_hash === undefined ? {} : { module_hash: receipt.module_hash }),
     timestamp: receipt.protocol_version === "mktd02-v5" ? receipt.timestamp : receipt.timestamp.toString(),
     deletion_seq: receipt.protocol_version === "mktd02-v5" ? receipt.deletion_seq : receipt.deletion_seq.toString(),
     bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
-    trust_root_key_id: receipt.trust_root_key_id,
+    ...(receipt.trust_root_key_id === undefined ? {} : { trust_root_key_id: receipt.trust_root_key_id }),
     module_hash_certificate: receipt.module_hash_certificate
       ? bytesToHex(receipt.module_hash_certificate)
       : null,
