@@ -1,11 +1,7 @@
 import { useState, useEffect } from "react";
 import { Principal } from "@dfinity/principal";
-import { HttpAgent } from "@dfinity/agent";
 import { isOk, getError } from "../ic/agent";
-import {
-  batchResolveDisplayNames,
-  truncatePrincipal,
-} from "../ic/resolve";
+import { authorLabel } from "../ic/author";
 
 interface Comment {
   id: bigint;
@@ -28,8 +24,6 @@ interface ChallengeData {
 interface ChallengeDetailProps {
   challengeId: bigint;
   boardActor: any;
-  factoryActor: any | null;
-  agent: HttpAgent | null;
   isAuthenticated: boolean;
   myPrincipal: string | null;
   onBack: () => void;
@@ -47,14 +41,11 @@ function timeAgo(nanos: bigint): string {
 export default function ChallengeDetail({
   challengeId,
   boardActor,
-  factoryActor,
-  agent,
   isAuthenticated,
   myPrincipal,
   onBack,
 }: ChallengeDetailProps) {
   const [challenge, setChallenge] = useState<ChallengeData | null>(null);
-  const [nameMap, setNameMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,20 +63,6 @@ export default function ChallengeDetail({
       if (isOk(result)) {
         const data = (result as any).Ok as ChallengeData;
         setChallenge(data);
-
-        // Resolve display names
-        if (isAuthenticated && factoryActor && agent) {
-          const authors = [
-            data.author,
-            ...data.comments.map((c: Comment) => c.author),
-          ];
-          const names = await batchResolveDisplayNames(
-            authors,
-            factoryActor,
-            agent
-          );
-          setNameMap(names);
-        }
       } else {
         setError(getError(result));
       }
@@ -99,10 +76,8 @@ export default function ChallengeDetail({
     loadChallenge().finally(() => setLoading(false));
   }, [challengeId]);
 
-  const getAuthorName = (author: Principal): string => {
-    if (!isAuthenticated) return truncatePrincipal(author);
-    return nameMap.get(author.toText()) || truncatePrincipal(author);
-  };
+  const getAuthorName = (author: Principal): string =>
+    authorLabel(author, isAuthenticated ? myPrincipal : null);
 
   const isMyChallenge =
     challenge && myPrincipal

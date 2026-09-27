@@ -5,6 +5,7 @@ import {
   downloadCvdr,
   exportCompleteness,
   formatTimestampIso,
+  isDirectCertification,
   type CvdrData,
 } from "../ic/finalize/cvdr";
 import type { GuardReport } from "../ic/finalize/guard";
@@ -175,7 +176,7 @@ export default function DeletionReceipt({
           </span>
         </div>
 
-        {receipt.protocol_version !== "mktd02-v5" && <div className="profile-field">
+        {!isDirectCertification(receipt.protocol_version) && <div className="profile-field">
           <span className="field-label">Certified Commitment</span>
           <span className="field-value mono" style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>
             {receipt.certified_commitment}

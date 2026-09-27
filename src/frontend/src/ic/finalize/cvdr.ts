@@ -1,5 +1,18 @@
 // Receipt mapping and lossless v5 JSON export. Candid nat64 remains bigint.
 // Historical v4 retains its commitment and decimal-string JSON counters.
+
+export const PROTOCOL_V5 = "mktd02-v5";
+export const PROTOCOL_V5_1 = "mktd02-v5.1";
+
+/**
+ * Direct-certification lines (certified_data = deletion_event_hash, no
+ * commitment, numeric JSON counters). Exact match only: v5 is frozen
+ * historical, v5.1 is the corrected line; no prefix matching.
+ */
+export function isDirectCertification(protocolVersion: unknown): boolean {
+  return protocolVersion === PROTOCOL_V5 || protocolVersion === PROTOCOL_V5_1;
+}
+
 export interface CvdrData {
   protocol_version: string;
   receipt_id: string;
@@ -136,12 +149,12 @@ export function buildCvdrExport(receipt: CvdrData): CvdrExport {
     post_state_hash: receipt.post_state_hash,
     tombstone_hash: receipt.tombstone_hash,
     deletion_event_hash: receipt.deletion_event_hash,
-    ...(receipt.protocol_version === "mktd02-v5" ? {} : { certified_commitment: receipt.certified_commitment }),
+    ...(isDirectCertification(receipt.protocol_version) ? {} : { certified_commitment: receipt.certified_commitment }),
     // Absent fields are omitted, never replaced by a placeholder. Historical
     // v4/v5 receipts always carry both, so their export is unchanged.
     ...(receipt.module_hash === undefined ? {} : { module_hash: receipt.module_hash }),
-    timestamp: receipt.protocol_version === "mktd02-v5" ? receipt.timestamp : receipt.timestamp.toString(),
-    deletion_seq: receipt.protocol_version === "mktd02-v5" ? receipt.deletion_seq : receipt.deletion_seq.toString(),
+    timestamp: isDirectCertification(receipt.protocol_version) ? receipt.timestamp : receipt.timestamp.toString(),
+    deletion_seq: isDirectCertification(receipt.protocol_version) ? receipt.deletion_seq : receipt.deletion_seq.toString(),
     bls_certificate: receipt.bls_certificate ? bytesToHex(receipt.bls_certificate) : null,
     ...(receipt.trust_root_key_id === undefined ? {} : { trust_root_key_id: receipt.trust_root_key_id }),
     module_hash_certificate: receipt.module_hash_certificate
@@ -184,7 +197,7 @@ export function downloadCvdr(receipt: CvdrData): void {
 
 /** Explicit version dispatch; never synthesize a v5 commitment. */
 function historicalCommitment(r: any): string | undefined {
-  if (r.protocol_version === "mktd02-v5") return undefined;
+  if (isDirectCertification(r.protocol_version)) return undefined;
   if (!String(r.protocol_version).startsWith("mktd02-v4")) {
     throw new Error(`Unsupported profile receipt version: ${r.protocol_version}`);
   }
@@ -195,7 +208,7 @@ function historicalCommitment(r: any): string | undefined {
 
 /** Value certified by Phase B, selected from the stored receipt, never the query's claim. */
 export function receiptCertifiedData(r: any): string {
-  return r.protocol_version === "mktd02-v5" ? r.deletion_event_hash : historicalCommitment(r)!;
+  return isDirectCertification(r.protocol_version) ? r.deletion_event_hash : historicalCommitment(r)!;
 }
 
 /** Serialize the flat wire object, emitting validated bigint digits as JSON numbers.
@@ -211,7 +224,7 @@ export function serializeCvdr(receipt: CvdrData): string {
       if (value < 0n || value > 18446744073709551615n) throw new Error(`${key} outside u64`);
       encoded = value.toString(10);
     } else {
-      if ((key === "timestamp" || key === "deletion_seq") && receipt.protocol_version === "mktd02-v5") {
+      if ((key === "timestamp" || key === "deletion_seq") && isDirectCertification(receipt.protocol_version)) {
         throw new Error(`${key} must remain bigint until serialization`);
       }
       encoded = JSON.stringify(value);

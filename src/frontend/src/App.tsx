@@ -13,7 +13,6 @@ import {
   II_URL,
   isLocal,
 } from "./ic/agent";
-import { clearNameCache } from "./ic/resolve";
 import { finalizePendingReceipt, type FinalizeStage } from "./ic/finalize/flow";
 import { isReceiptFinalized, mapReceiptToCvdr } from "./ic/finalize/cvdr";
 import type { GuardReport } from "./ic/finalize/guard";
@@ -347,7 +346,6 @@ function App() {
   const handleLogout = async () => {
     if (!authClient) return;
     await authClient.logout();
-    clearNameCache();
     setPrincipal(null);
     setProfileCanisterId(null);
     setProfileData(null);
@@ -526,8 +524,6 @@ function App() {
         {showFeed && !selectedChallengeId && boardActor && (
           <ChallengeFeed
             boardActor={boardActor}
-            factoryActor={factoryActor}
-            agent={agent}
             isAuthenticated={isAuthenticated}
             myPrincipal={principal}
             onSelectChallenge={(id) => {
@@ -546,8 +542,6 @@ function App() {
             <ChallengeDetail
               challengeId={selectedChallengeId}
               boardActor={boardActor}
-              factoryActor={factoryActor}
-              agent={agent}
               isAuthenticated={isAuthenticated}
               myPrincipal={principal}
               onBack={goToFeed}

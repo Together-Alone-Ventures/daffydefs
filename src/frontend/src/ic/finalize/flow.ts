@@ -36,7 +36,13 @@ import {
   guardPermitsFinalize,
   type GuardReport,
 } from "./guard";
-import { isReceiptFinalized, mapReceiptToCvdr, unwrapOptText, type CvdrData } from "./cvdr";
+import {
+  PROTOCOL_V5_1,
+  isReceiptFinalized,
+  mapReceiptToCvdr,
+  unwrapOptText,
+  type CvdrData,
+} from "./cvdr";
 
 export type FinalizeStage =
   | "idle"
@@ -316,19 +322,13 @@ async function runFinalize(params: FinalizeParams): Promise<FinalizeOutcome> {
       };
     }
 
-    // A pending mktd02-v5.1 receipt carries no module_hash; this client guard
-    // has no expected value to compare against, so it stops explicitly.
-    const pendingModuleHash = unwrapOptText(receipt.module_hash);
-    if (pendingModuleHash === undefined) {
-      stage("failed");
-      return {
-        status: "failed",
-        receipt: mapReceiptToCvdr(receipt),
-        guard: null,
-        error: "pending receipt carries no module_hash; this client cannot guard its finalisation",
-      };
-    }
-    const expectedModuleHash = fromHex(pendingModuleHash);
+    // mktd02-v5.1: the pending receipt has no module_hash by design, and Phase C
+    // extracts the certified value itself, so nothing is required or compared
+    // here. Historical v5 pending receipts carry one and keep the G2 comparison.
+    const pendingModuleHash =
+      receipt.protocol_version === PROTOCOL_V5_1 ? undefined : unwrapOptText(receipt.module_hash);
+    const expectedModuleHash =
+      pendingModuleHash === undefined ? null : fromHex(pendingModuleHash);
     const expectedCertifiedData = fromHex(receiptCertifiedData(receipt));
 
     // --- 3. Anonymous read_state for the module hash -----------------------

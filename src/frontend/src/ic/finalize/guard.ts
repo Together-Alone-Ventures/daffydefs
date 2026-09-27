@@ -11,7 +11,11 @@
 //
 //   G1_path_identity     /canister/<receipt.canister_id>/module_hash present as a
 //                        leaf; path supplied by the caller, never discovered.
-//   G2_module_hash_value certified module_hash == the receipt's embedded module_hash.
+//   G2_module_hash_value certified module_hash == the receipt's embedded module_hash,
+//                        when the pending receipt carries one (historical v5).
+//                        A mktd02-v5.1 pending receipt carries none: G2 then
+//                        only records the certified leaf as a preflight, and
+//                        Phase C's certified extraction is authoritative.
 //   G4_same_trust_root   Phase B certificate independently validates (BLS +
 //                        delegation range) under the same root key as the
 //                        module-hash certificate. The host's query response is
@@ -87,8 +91,11 @@ export interface GuardInputs {
   /** Derived from the receipt's own canister_id — both certs are read under it. */
   canisterId: Principal;
   receiptId: string;
-  /** The receipt's embedded module_hash (G2 expectation). */
-  expectedModuleHash: Uint8Array;
+  /**
+   * The pending receipt's embedded module_hash (G2 expectation), or null when
+   * the receipt carries none (mktd02-v5.1). Null never fails the guard.
+   */
+  expectedModuleHash: Uint8Array | null;
   /** The receipt's version-selected certified data (G3 expectation). */
   expectedCertifiedData: Uint8Array;
   moduleHashTree: HashTree;
@@ -176,7 +183,14 @@ export function evaluateGuard(inputs: GuardInputs): GuardReport {
 
   // --- G2: certified value == expected embedded module_hash ----------------
   // Only meaningful when G1 produced a leaf, matching the helper's `if let`.
-  if (certifiedHash) {
+  if (certifiedHash && expectedModuleHash === null) {
+    checks.push({
+      id: "G2_module_hash_value",
+      description: "certified module_hash equals the receipt's embedded module_hash",
+      passed: true,
+      detail: `preflight only: pending receipt carries no module_hash (mktd02-v5.1); certified leaf ${toHex(certifiedHash)}; Phase C extraction is authoritative`,
+    });
+  } else if (certifiedHash && expectedModuleHash !== null) {
     const passed = bytesEqual(certifiedHash, expectedModuleHash);
     if (!passed) ok = false;
     checks.push({
