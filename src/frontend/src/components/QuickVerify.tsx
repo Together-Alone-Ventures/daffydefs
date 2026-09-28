@@ -48,7 +48,7 @@ export default function QuickVerify() {
     {facts && <section className="card"><h2>Overall: {facts.validity?.validity ?? "FAIL"}</h2><ul className="verify-results">
       {row("V1", "v1")}{row("V2", "v2")}
       <li><strong>V3A — Subnet-attested module identity (finalisation window)</strong>: {facts.checks?.v3a?.outcome?.toUpperCase() ?? "NOT RUN"}{facts.checks?.v3a?.error ? ` (${facts.checks.v3a.error})` : ""}<div className="hash-value">Module hash: {String(receipt?.module_hash ?? "not available")}</div></li>
-      <li><strong>V3B — Source/build provenance</strong>: not checked here → <a href={V3B_INSTRUCTIONS_URL} target="_blank" rel="noopener noreferrer">see Step C</a></li>
+      <li><strong>V3B — Source/build provenance</strong>: not checked here → <a href={V3B_INSTRUCTIONS_URL} target="_blank" rel="noopener noreferrer">see the V3B rebuild instructions</a></li>
     </ul><p><strong>Trust root: ICP mainnet</strong></p>
       {Boolean(facts.trust_root_mismatch) && <p className="field-hint">Warning: receipt root label differs from the ICP mainnet root used; this label is informational.</p>}
       <p className="hash-value">Receipt ID: {facts.receipt_id ?? String(receipt?.receipt_id ?? "not available")}</p>
