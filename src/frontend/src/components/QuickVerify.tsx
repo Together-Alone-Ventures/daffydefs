@@ -1,4 +1,5 @@
 import { ChangeEvent, useState } from "react";
+import { SERVED_WASM_SHA256, V3B_INSTRUCTIONS_URL, VERIFIER_SOURCE_LABEL } from "./verifierBuild";
 
 type Facts = {
   validity?: { validity?: string; reason?: string };
@@ -38,7 +39,7 @@ export default function QuickVerify() {
     return <li><strong>{name}</strong>: {check?.outcome?.toUpperCase() ?? "NOT RUN"}{wording ? ` — ${wording}` : ""}{check?.error ? ` (${check.error})` : ""}{check?.reason ? ` (${check.reason})` : ""}</li>;
   };
   const delayed = facts?.timing?.some(item => item.verdict === "DELAY_EXCEEDED");
-  return <main className="app quick-verify"><header className="header"><h1>Quick Verify</h1><p className="subtitle">MKTd02 deletion receipt verifier</p><p className="field-value mono">Verifier commit: 1ff2149 · WASM SHA-256: d925b72cebf781d212e0199ef47b64dfddef2b8880ccd3c25fb021d9e607c50f</p></header>
+  return <main className="app quick-verify"><header className="header"><h1>Quick Verify</h1><p className="subtitle">MKTd02 deletion receipt verifier</p><p className="field-value mono">Verifier source: {VERIFIER_SOURCE_LABEL}</p><p className="field-value mono hash-value">Served WASM SHA-256: {SERVED_WASM_SHA256}</p></header>
     <section className="card"><p><strong>Local-only:</strong> your receipt is verified in this browser; it is never uploaded.</p>
       <input type="file" accept="application/json,.json" onChange={readFile} />
       <textarea aria-label="Receipt JSON" rows={12} value={text} onChange={e => setText(e.target.value)} placeholder="Paste receipt JSON" />
@@ -47,7 +48,7 @@ export default function QuickVerify() {
     {facts && <section className="card"><h2>Overall: {facts.validity?.validity ?? "FAIL"}</h2><ul className="verify-results">
       {row("V1", "v1")}{row("V2", "v2")}
       <li><strong>V3A — Subnet-attested module identity (finalisation window)</strong>: {facts.checks?.v3a?.outcome?.toUpperCase() ?? "NOT RUN"}{facts.checks?.v3a?.error ? ` (${facts.checks.v3a.error})` : ""}<div className="hash-value">Module hash: {String(receipt?.module_hash ?? "not available")}</div></li>
-      <li><strong>V3B — Source/build provenance</strong>: not checked here → <a href="https://internetcomputer.org/docs/references/ic-interface-spec">see Step D</a></li>
+      <li><strong>V3B — Source/build provenance</strong>: not checked here → <a href={V3B_INSTRUCTIONS_URL} target="_blank" rel="noopener noreferrer">see Step C</a></li>
     </ul><p><strong>Trust root: ICP mainnet</strong></p>
       {Boolean(facts.trust_root_mismatch) && <p className="field-hint">Warning: receipt root label differs from the ICP mainnet root used; this label is informational.</p>}
       <p className="hash-value">Receipt ID: {facts.receipt_id ?? String(receipt?.receipt_id ?? "not available")}</p>

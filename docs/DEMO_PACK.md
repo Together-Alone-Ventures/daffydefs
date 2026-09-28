@@ -52,7 +52,7 @@ This is also the current profile hash in [RELEASES.md](../RELEASES.md); the [can
 
 Open [Quick Verify](https://5b3yq-gqaaa-aaaaj-qp4ta-cai.icp0.io/verify), choose the downloaded JSON or paste it, and select **Verify locally**. The page sends no receipt data to a server. It accepts mainnet receipts only. V3B is not run here.
 
-Browser verifier source: DaffyDefs `1ff2149`; WASM SHA-256: `d925b72cebf781d212e0199ef47b64dfddef2b8880ccd3c25fb021d9e607c50f`.
+Browser verifier source: DaffyDefs `1ff2149` (`tools/cvdr-verify` = CVDR-Verify `67cbe4b`). Served WASM SHA-256 (`/cvdr-wasm/mktd02_verify_bg.wasm`): `1f8b4cd14280f2d384d530475ae195cff5d7fa2b7576b1f12ffe69194b3dc1d0`. See [REFERENCE_VERIFIER.md](REFERENCE_VERIFIER.md#browser-verifier-quick-verify) for how that file is built.
 
 Continue to **Step C** below for manual verifier use and optional provenance work.
 
